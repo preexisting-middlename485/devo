@@ -1,8 +1,8 @@
 use std::path::PathBuf;
 
-use claw_permissions::{PermissionDecision, PermissionRequest, ResourceKind};
 use crate::{Tool, ToolContext, ToolOutput};
 use async_trait::async_trait;
+use claw_permissions::{PermissionDecision, PermissionRequest, ResourceKind};
 use serde_json::json;
 use tracing::info;
 
@@ -76,7 +76,10 @@ impl Tool for FileEditTool {
                 return Ok(ToolOutput::error(format!("permission denied: {}", reason)));
             }
             PermissionDecision::Ask { message } => {
-                return Ok(ToolOutput::error(format!("permission required — run with --permission interactive to approve: {}", message)));
+                return Ok(ToolOutput::error(format!(
+                    "permission required — run with --permission interactive to approve: {}",
+                    message
+                )));
             }
         }
 
@@ -103,10 +106,7 @@ impl Tool for FileEditTool {
         info!(path = %path.display(), "editing file");
 
         match tokio::fs::write(&path, &new_content).await {
-            Ok(_) => Ok(ToolOutput::success(format!(
-                "edited {}",
-                path.display()
-            ))),
+            Ok(_) => Ok(ToolOutput::success(format!("edited {}", path.display()))),
             Err(e) => Ok(ToolOutput::error(format!("failed to write file: {}", e))),
         }
     }

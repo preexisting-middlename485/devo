@@ -40,6 +40,87 @@ pub struct ModelResponse {
     pub usage: Usage,
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn usage_default() {
+        let usage = Usage::default();
+        assert_eq!(usage.input_tokens, 0);
+        assert_eq!(usage.output_tokens, 0);
+        assert!(usage.cache_creation_input_tokens.is_none());
+        assert!(usage.cache_read_input_tokens.is_none());
+    }
+
+    #[test]
+    fn usage_serde_skips_none_cache() {
+        let usage = Usage {
+            input_tokens: 100,
+            output_tokens: 50,
+            cache_creation_input_tokens: None,
+            cache_read_input_tokens: None,
+        };
+        let json = serde_json::to_string(&usage).unwrap();
+        assert!(!json.contains("cache_creation"));
+        assert!(!json.contains("cache_read"));
+    }
+
+    #[test]
+    fn stop_reason_serde() {
+        for reason in [
+            StopReason::EndTurn,
+            StopReason::ToolUse,
+            StopReason::MaxTokens,
+            StopReason::StopSequence,
+        ] {
+            let json = serde_json::to_string(&reason).unwrap();
+            let deserialized: StopReason = serde_json::from_str(&json).unwrap();
+            assert_eq!(deserialized, reason);
+        }
+    }
+
+    #[test]
+    fn model_response_serde() {
+        let resp = ModelResponse {
+            id: "msg-123".into(),
+            content: vec![ResponseContent::Text("hello".into())],
+            stop_reason: Some(StopReason::EndTurn),
+            usage: Usage {
+                input_tokens: 10,
+                output_tokens: 5,
+                cache_creation_input_tokens: None,
+                cache_read_input_tokens: None,
+            },
+        };
+        let json = serde_json::to_string(&resp).unwrap();
+        let deserialized: ModelResponse = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.id, "msg-123");
+        assert_eq!(deserialized.content.len(), 1);
+        assert_eq!(deserialized.stop_reason, Some(StopReason::EndTurn));
+    }
+
+    #[test]
+    fn response_content_tool_use_serde() {
+        let content = ResponseContent::ToolUse {
+            id: "tu-1".into(),
+            name: "bash".into(),
+            input: json!({"cmd": "ls"}),
+        };
+        let json = serde_json::to_string(&content).unwrap();
+        let deserialized: ResponseContent = serde_json::from_str(&json).unwrap();
+        match deserialized {
+            ResponseContent::ToolUse { id, name, input } => {
+                assert_eq!(id, "tu-1");
+                assert_eq!(name, "bash");
+                assert_eq!(input, json!({"cmd": "ls"}));
+            }
+            _ => panic!("expected ToolUse"),
+        }
+    }
+}
+
 /// Incremental events emitted during streaming.
 #[derive(Debug, Clone)]
 pub enum StreamEvent {

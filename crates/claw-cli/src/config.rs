@@ -53,8 +53,7 @@ pub fn save_config(config: &AppConfig) -> Result<()> {
             .with_context(|| format!("failed to create {}", parent.display()))?;
     }
     let json = serde_json::to_string_pretty(config)?;
-    std::fs::write(&path, json)
-        .with_context(|| format!("failed to write {}", path.display()))?;
+    std::fs::write(&path, json).with_context(|| format!("failed to write {}", path.display()))?;
     Ok(())
 }
 
@@ -68,14 +67,16 @@ fn env_non_empty(name: &str) -> Option<String> {
 
 /// Build a partial config from environment variables.
 fn env_config() -> AppConfig {
-    let api_key = env_non_empty("ANTHROPIC_API_KEY")
-        .or_else(|| env_non_empty("ANTHROPIC_AUTH_TOKEN"));
+    let api_key =
+        env_non_empty("ANTHROPIC_API_KEY").or_else(|| env_non_empty("ANTHROPIC_AUTH_TOKEN"));
     let base_url = env_non_empty("ANTHROPIC_BASE_URL");
 
     // If any Anthropic auth is present, provider is anthropic
     let provider = if api_key.is_some() {
         Some("anthropic".to_string())
-    } else if env_non_empty("OPENAI_API_KEY").is_some() || env_non_empty("OPENAI_BASE_URL").is_some() {
+    } else if env_non_empty("OPENAI_API_KEY").is_some()
+        || env_non_empty("OPENAI_BASE_URL").is_some()
+    {
         Some("openai".to_string())
     } else {
         None
@@ -148,9 +149,8 @@ fn build_provider(
 ) -> Result<ResolvedProvider> {
     match name {
         "anthropic" => {
-            let key = api_key.context(
-                "Anthropic provider requires ANTHROPIC_API_KEY or ANTHROPIC_AUTH_TOKEN",
-            )?;
+            let key = api_key
+                .context("Anthropic provider requires ANTHROPIC_API_KEY or ANTHROPIC_AUTH_TOKEN")?;
             let default_model = "claude-sonnet-4-20250514".to_string();
             let model = model.unwrap_or(default_model);
             eprintln!("Using Anthropic API (model: {})", model);
@@ -193,7 +193,10 @@ fn build_provider(
             })
         }
         other => {
-            anyhow::bail!("Unknown provider '{}'. Use: anthropic, ollama, openai", other);
+            anyhow::bail!(
+                "Unknown provider '{}'. Use: anthropic, ollama, openai",
+                other
+            );
         }
     }
 }

@@ -66,7 +66,11 @@ impl Tool for GrepTool {
         let base = match input["path"].as_str() {
             Some(p) => {
                 let pb = PathBuf::from(p);
-                if pb.is_absolute() { pb } else { ctx.cwd.join(pb) }
+                if pb.is_absolute() {
+                    pb
+                } else {
+                    ctx.cwd.join(pb)
+                }
             }
             None => ctx.cwd.clone(),
         };

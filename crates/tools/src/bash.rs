@@ -1,6 +1,6 @@
-use claw_permissions::{PermissionDecision, PermissionRequest, ResourceKind};
 use crate::{Tool, ToolContext, ToolOutput};
 use async_trait::async_trait;
+use claw_permissions::{PermissionDecision, PermissionRequest, ResourceKind};
 use serde_json::json;
 use std::process::Stdio;
 use tokio::process::Command;
@@ -66,7 +66,10 @@ impl Tool for BashTool {
                 return Ok(ToolOutput::error(format!("permission denied: {}", reason)));
             }
             PermissionDecision::Ask { message } => {
-                return Ok(ToolOutput::error(format!("permission required — run with --permission interactive to approve: {}", message)));
+                return Ok(ToolOutput::error(format!(
+                    "permission required — run with --permission interactive to approve: {}",
+                    message
+                )));
             }
         }
 

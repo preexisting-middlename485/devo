@@ -228,19 +228,19 @@ fn make_event_callback(format: OutputFormat) -> Arc<dyn Fn(QueryEvent) + Send + 
     Arc::new(move |event| match format {
         OutputFormat::Text => handle_event_text(event),
         OutputFormat::StreamJson => handle_event_stream_json(event),
-        OutputFormat::Json => {
-            match &event {
-                QueryEvent::ToolUseStart { name, .. } => {
-                    eprintln!("⚡ calling tool: {}", name);
-                }
-                QueryEvent::ToolResult { is_error, content, .. } => {
-                    if *is_error {
-                        eprintln!("❌ tool error: {}", truncate(content, 200));
-                    }
-                }
-                _ => {}
+        OutputFormat::Json => match &event {
+            QueryEvent::ToolUseStart { name, .. } => {
+                eprintln!("⚡ calling tool: {}", name);
             }
-        }
+            QueryEvent::ToolResult {
+                is_error, content, ..
+            } => {
+                if *is_error {
+                    eprintln!("❌ tool error: {}", truncate(content, 200));
+                }
+            }
+            _ => {}
+        },
     })
 }
 
@@ -253,7 +253,9 @@ fn handle_event_text(event: QueryEvent) {
         QueryEvent::ToolUseStart { name, .. } => {
             eprintln!("\n⚡ calling tool: {}", name);
         }
-        QueryEvent::ToolResult { is_error, content, .. } => {
+        QueryEvent::ToolResult {
+            is_error, content, ..
+        } => {
             if is_error {
                 eprintln!("❌ tool error: {}", truncate(&content, 200));
             } else {
@@ -263,7 +265,10 @@ fn handle_event_text(event: QueryEvent) {
         QueryEvent::TurnComplete { .. } => {
             println!();
         }
-        QueryEvent::Usage { input_tokens, output_tokens } => {
+        QueryEvent::Usage {
+            input_tokens,
+            output_tokens,
+        } => {
             eprintln!("  [tokens: {} in / {} out]", input_tokens, output_tokens);
         }
     }
@@ -277,7 +282,11 @@ fn handle_event_stream_json(event: QueryEvent) {
         QueryEvent::ToolUseStart { id, name } => {
             serde_json::json!({ "type": "tool_use_start", "id": id, "name": name })
         }
-        QueryEvent::ToolResult { tool_use_id, content, is_error } => {
+        QueryEvent::ToolResult {
+            tool_use_id,
+            content,
+            is_error,
+        } => {
             serde_json::json!({
                 "type": "tool_result",
                 "tool_use_id": tool_use_id,
@@ -288,7 +297,10 @@ fn handle_event_stream_json(event: QueryEvent) {
         QueryEvent::TurnComplete { stop_reason } => {
             serde_json::json!({ "type": "turn_complete", "stop_reason": format!("{:?}", stop_reason) })
         }
-        QueryEvent::Usage { input_tokens, output_tokens } => {
+        QueryEvent::Usage {
+            input_tokens,
+            output_tokens,
+        } => {
             serde_json::json!({ "type": "usage", "input_tokens": input_tokens, "output_tokens": output_tokens })
         }
     };

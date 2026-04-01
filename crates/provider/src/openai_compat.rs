@@ -3,12 +3,12 @@ use std::pin::Pin;
 use async_openai::{
     config::{Config, OpenAIConfig},
     types::chat::{
-        ChatCompletionMessageToolCalls,
-        ChatCompletionRequestAssistantMessage, ChatCompletionRequestMessage,
-        ChatCompletionRequestSystemMessage, ChatCompletionRequestToolMessage,
-        ChatCompletionRequestUserMessage, ChatCompletionStreamResponseDelta,
-        ChatCompletionTool, ChatCompletionTools, CreateChatCompletionRequest,
-        CreateChatCompletionRequestArgs, FinishReason, FunctionCall, FunctionObject,
+        ChatCompletionMessageToolCalls, ChatCompletionRequestAssistantMessage,
+        ChatCompletionRequestMessage, ChatCompletionRequestSystemMessage,
+        ChatCompletionRequestToolMessage, ChatCompletionRequestUserMessage,
+        ChatCompletionStreamResponseDelta, ChatCompletionTool, ChatCompletionTools,
+        CreateChatCompletionRequest, CreateChatCompletionRequestArgs, FinishReason, FunctionCall,
+        FunctionObject,
     },
     Client,
 };
@@ -292,8 +292,7 @@ fn build_request(request: &ModelRequest) -> anyhow::Result<CreateChatCompletionR
                                     id: id.clone(),
                                     function: FunctionCall {
                                         name: name.clone(),
-                                        arguments: serde_json::to_string(input)
-                                            .unwrap_or_default(),
+                                        arguments: serde_json::to_string(input).unwrap_or_default(),
                                     },
                                 },
                             ));

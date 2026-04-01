@@ -79,3 +79,135 @@ impl PermissionPolicy for RuleBasedPolicy {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn file_write_request(target: Option<&str>) -> PermissionRequest {
+        PermissionRequest {
+            tool_name: "file_write".into(),
+            resource: ResourceKind::FileWrite,
+            description: "write a file".into(),
+            target: target.map(|s| s.into()),
+        }
+    }
+
+    #[test]
+    fn pattern_matches_wildcard() {
+        assert!(RuleBasedPolicy::pattern_matches("*", "anything"));
+        assert!(RuleBasedPolicy::pattern_matches("*", ""));
+    }
+
+    #[test]
+    fn pattern_matches_prefix() {
+        assert!(RuleBasedPolicy::pattern_matches(
+            "/home/*",
+            "/home/user/file.txt"
+        ));
+        assert!(!RuleBasedPolicy::pattern_matches("/home/*", "/etc/passwd"));
+    }
+
+    #[test]
+    fn pattern_matches_exact() {
+        assert!(RuleBasedPolicy::pattern_matches(
+            "/etc/passwd",
+            "/etc/passwd"
+        ));
+        assert!(!RuleBasedPolicy::pattern_matches(
+            "/etc/passwd",
+            "/etc/shadow"
+        ));
+    }
+
+    #[tokio::test]
+    async fn auto_approve_allows_everything() {
+        let policy = RuleBasedPolicy::new(PermissionMode::AutoApprove);
+        let req = file_write_request(Some("/tmp/test"));
+        assert!(matches!(
+            policy.check(&req).await,
+            PermissionDecision::Allow
+        ));
+    }
+
+    #[tokio::test]
+    async fn deny_mode_denies_everything() {
+        let policy = RuleBasedPolicy::new(PermissionMode::Deny);
+        let req = file_write_request(Some("/tmp/test"));
+        assert!(matches!(
+            policy.check(&req).await,
+            PermissionDecision::Deny { .. }
+        ));
+    }
+
+    #[tokio::test]
+    async fn interactive_mode_asks() {
+        let policy = RuleBasedPolicy::new(PermissionMode::Interactive);
+        let req = file_write_request(Some("/tmp/test"));
+        assert!(matches!(
+            policy.check(&req).await,
+            PermissionDecision::Ask { .. }
+        ));
+    }
+
+    #[tokio::test]
+    async fn explicit_allow_rule_overrides_deny_mode() {
+        let rules = vec![PermissionRule {
+            resource: ResourceKind::FileWrite,
+            pattern: "/tmp/*".into(),
+            allow: true,
+        }];
+        let policy = RuleBasedPolicy::with_rules(PermissionMode::Deny, rules);
+        let req = file_write_request(Some("/tmp/test"));
+        assert!(matches!(
+            policy.check(&req).await,
+            PermissionDecision::Allow
+        ));
+    }
+
+    #[tokio::test]
+    async fn explicit_deny_rule_overrides_auto_approve() {
+        let rules = vec![PermissionRule {
+            resource: ResourceKind::FileWrite,
+            pattern: "/etc/*".into(),
+            allow: false,
+        }];
+        let policy = RuleBasedPolicy::with_rules(PermissionMode::AutoApprove, rules);
+        let req = file_write_request(Some("/etc/passwd"));
+        assert!(matches!(
+            policy.check(&req).await,
+            PermissionDecision::Deny { .. }
+        ));
+    }
+
+    #[tokio::test]
+    async fn no_matching_rule_falls_back_to_mode() {
+        let rules = vec![PermissionRule {
+            resource: ResourceKind::ShellExec,
+            pattern: "*".into(),
+            allow: true,
+        }];
+        let policy = RuleBasedPolicy::with_rules(PermissionMode::Deny, rules);
+        // FileWrite request won't match a ShellExec rule
+        let req = file_write_request(Some("/tmp/test"));
+        assert!(matches!(
+            policy.check(&req).await,
+            PermissionDecision::Deny { .. }
+        ));
+    }
+
+    #[tokio::test]
+    async fn request_without_target_matches_empty_string() {
+        let rules = vec![PermissionRule {
+            resource: ResourceKind::FileWrite,
+            pattern: "".into(),
+            allow: true,
+        }];
+        let policy = RuleBasedPolicy::with_rules(PermissionMode::Deny, rules);
+        let req = file_write_request(None);
+        assert!(matches!(
+            policy.check(&req).await,
+            PermissionDecision::Allow
+        ));
+    }
+}

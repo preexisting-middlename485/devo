@@ -218,11 +218,11 @@ mod tests {
     use futures::Stream;
     use serde_json::json;
 
-use claw_permissions::PermissionMode;
-use claw_provider::{
+    use claw_permissions::PermissionMode;
+    use claw_provider::{
         ModelRequest, ModelResponse, ResponseContent, StopReason, StreamEvent, Usage,
     };
-use claw_tools::{Tool, ToolOrchestrator, ToolOutput, ToolRegistry};
+    use claw_tools::{Tool, ToolOrchestrator, ToolOutput, ToolRegistry};
 
     use super::query;
     use crate::{ContentBlock, Message, SessionConfig, SessionState};
@@ -232,7 +232,7 @@ use claw_tools::{Tool, ToolOrchestrator, ToolOutput, ToolRegistry};
     }
 
     #[async_trait]
-impl claw_provider::ModelProvider for SingleToolUseProvider {
+    impl claw_provider::ModelProvider for SingleToolUseProvider {
         async fn complete(&self, _request: ModelRequest) -> Result<ModelResponse> {
             unreachable!("tests stream responses only")
         }
@@ -319,7 +319,7 @@ impl claw_provider::ModelProvider for SingleToolUseProvider {
 
         async fn execute(
             &self,
-        _ctx: &claw_tools::ToolContext,
+            _ctx: &claw_tools::ToolContext,
             _input: serde_json::Value,
         ) -> Result<ToolOutput> {
             Ok(ToolOutput::success("ok"))

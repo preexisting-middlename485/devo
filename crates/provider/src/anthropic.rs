@@ -147,10 +147,7 @@ impl ModelProvider for AnthropicProvider {
                         }
                         content_blocks[index] = rc.clone();
                         let _ = tx
-                            .send(Ok(StreamEvent::ContentBlockStart {
-                                index,
-                                content: rc,
-                            }))
+                            .send(Ok(StreamEvent::ContentBlockStart { index, content: rc }))
                             .await;
                     }
                     MessagesStreamEvent::ContentBlockDelta { index, delta } => match delta {
@@ -182,17 +179,14 @@ impl ModelProvider for AnthropicProvider {
                     MessagesStreamEvent::ContentBlockStop { index } => {
                         if let Some(json_str) = tool_json.remove(&index) {
                             if let Ok(parsed) = serde_json::from_str(&json_str) {
-                                if let Some(ResponseContent::ToolUse {
-                                    ref mut input, ..
-                                }) = content_blocks.get_mut(index)
+                                if let Some(ResponseContent::ToolUse { ref mut input, .. }) =
+                                    content_blocks.get_mut(index)
                                 {
                                     *input = parsed;
                                 }
                             }
                         }
-                        let _ = tx
-                            .send(Ok(StreamEvent::ContentBlockStop { index }))
-                            .await;
+                        let _ = tx.send(Ok(StreamEvent::ContentBlockStop { index })).await;
                     }
                     MessagesStreamEvent::MessageDelta { delta, usage } => {
                         stop_reason = delta.stop_reason.as_deref().map(parse_stop_reason);

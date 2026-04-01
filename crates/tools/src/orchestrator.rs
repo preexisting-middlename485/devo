@@ -76,7 +76,11 @@ impl ToolOrchestrator {
         results
     }
 
-    async fn execute_single(&self, call: &ToolCall, ctx: &ToolContext) -> ToolCallResult {
+    pub(crate) async fn execute_single(
+        &self,
+        call: &ToolCall,
+        ctx: &ToolContext,
+    ) -> ToolCallResult {
         let Some(tool) = self.registry.get(&call.name) else {
             warn!(tool = %call.name, "tool not found");
             return ToolCallResult {
@@ -130,5 +134,240 @@ impl ToolOrchestrator {
                 output: ToolOutput::error(format!("tool execution failed: {}", e)),
             },
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use async_trait::async_trait;
+    use serde_json::json;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    use claw_permissions::{PermissionMode, RuleBasedPolicy};
+
+    use crate::{Tool, ToolContext, ToolOutput};
+
+    struct ReadOnlyTool;
+
+    #[async_trait]
+    impl Tool for ReadOnlyTool {
+        fn name(&self) -> &str {
+            "read_tool"
+        }
+        fn description(&self) -> &str {
+            "reads stuff"
+        }
+        fn input_schema(&self) -> serde_json::Value {
+            json!({"type": "object"})
+        }
+        async fn execute(
+            &self,
+            _ctx: &ToolContext,
+            _input: serde_json::Value,
+        ) -> anyhow::Result<ToolOutput> {
+            Ok(ToolOutput::success("read ok"))
+        }
+        fn is_read_only(&self) -> bool {
+            true
+        }
+    }
+
+    struct WriteTool {
+        call_count: AtomicUsize,
+    }
+
+    #[async_trait]
+    impl Tool for WriteTool {
+        fn name(&self) -> &str {
+            "write_tool"
+        }
+        fn description(&self) -> &str {
+            "writes stuff"
+        }
+        fn input_schema(&self) -> serde_json::Value {
+            json!({"type": "object"})
+        }
+        async fn execute(
+            &self,
+            _ctx: &ToolContext,
+            _input: serde_json::Value,
+        ) -> anyhow::Result<ToolOutput> {
+            self.call_count.fetch_add(1, Ordering::SeqCst);
+            Ok(ToolOutput::success("write ok"))
+        }
+        fn is_read_only(&self) -> bool {
+            false
+        }
+    }
+
+    struct FailingTool;
+
+    #[async_trait]
+    impl Tool for FailingTool {
+        fn name(&self) -> &str {
+            "failing_tool"
+        }
+        fn description(&self) -> &str {
+            "always fails"
+        }
+        fn input_schema(&self) -> serde_json::Value {
+            json!({"type": "object"})
+        }
+        async fn execute(
+            &self,
+            _ctx: &ToolContext,
+            _input: serde_json::Value,
+        ) -> anyhow::Result<ToolOutput> {
+            anyhow::bail!("something went wrong")
+        }
+    }
+
+    fn make_ctx(mode: PermissionMode) -> ToolContext {
+        ToolContext {
+            cwd: std::path::PathBuf::from("/tmp"),
+            permissions: Arc::new(RuleBasedPolicy::new(mode)),
+            session_id: "test-session".into(),
+        }
+    }
+
+    #[tokio::test]
+    async fn unknown_tool_returns_error() {
+        let registry = Arc::new(ToolRegistry::new());
+        let orch = ToolOrchestrator::new(registry);
+        let ctx = make_ctx(PermissionMode::AutoApprove);
+
+        let call = ToolCall {
+            id: "c1".into(),
+            name: "nonexistent".into(),
+            input: json!({}),
+        };
+        let result = orch.execute_single(&call, &ctx).await;
+        assert!(result.output.is_error);
+        assert!(result.output.content.contains("unknown tool"));
+    }
+
+    #[tokio::test]
+    async fn read_only_tool_skips_permission_check() {
+        let mut reg = ToolRegistry::new();
+        reg.register(Arc::new(ReadOnlyTool));
+        let registry = Arc::new(reg);
+        let orch = ToolOrchestrator::new(registry);
+        let ctx = make_ctx(PermissionMode::Deny);
+
+        let call = ToolCall {
+            id: "c1".into(),
+            name: "read_tool".into(),
+            input: json!({}),
+        };
+        let result = orch.execute_single(&call, &ctx).await;
+        assert!(!result.output.is_error);
+        assert_eq!(result.output.content, "read ok");
+    }
+
+    #[tokio::test]
+    async fn mutating_tool_denied_in_deny_mode() {
+        let mut reg = ToolRegistry::new();
+        reg.register(Arc::new(WriteTool {
+            call_count: AtomicUsize::new(0),
+        }));
+        let registry = Arc::new(reg);
+        let orch = ToolOrchestrator::new(registry);
+        let ctx = make_ctx(PermissionMode::Deny);
+
+        let call = ToolCall {
+            id: "c1".into(),
+            name: "write_tool".into(),
+            input: json!({}),
+        };
+        let result = orch.execute_single(&call, &ctx).await;
+        assert!(result.output.is_error);
+        assert!(result.output.content.contains("permission denied"));
+    }
+
+    #[tokio::test]
+    async fn mutating_tool_allowed_in_auto_approve() {
+        let mut reg = ToolRegistry::new();
+        reg.register(Arc::new(WriteTool {
+            call_count: AtomicUsize::new(0),
+        }));
+        let registry = Arc::new(reg);
+        let orch = ToolOrchestrator::new(registry);
+        let ctx = make_ctx(PermissionMode::AutoApprove);
+
+        let call = ToolCall {
+            id: "c1".into(),
+            name: "write_tool".into(),
+            input: json!({}),
+        };
+        let result = orch.execute_single(&call, &ctx).await;
+        assert!(!result.output.is_error);
+        assert_eq!(result.output.content, "write ok");
+    }
+
+    #[tokio::test]
+    async fn interactive_mode_returns_ask() {
+        let mut reg = ToolRegistry::new();
+        reg.register(Arc::new(WriteTool {
+            call_count: AtomicUsize::new(0),
+        }));
+        let registry = Arc::new(reg);
+        let orch = ToolOrchestrator::new(registry);
+        let ctx = make_ctx(PermissionMode::Interactive);
+
+        let call = ToolCall {
+            id: "c1".into(),
+            name: "write_tool".into(),
+            input: json!({}),
+        };
+        let result = orch.execute_single(&call, &ctx).await;
+        assert!(result.output.is_error);
+        assert!(result.output.content.contains("permission required"));
+    }
+
+    #[tokio::test]
+    async fn failing_tool_wraps_error() {
+        let mut reg = ToolRegistry::new();
+        reg.register(Arc::new(FailingTool));
+        let registry = Arc::new(reg);
+        let orch = ToolOrchestrator::new(registry);
+        let ctx = make_ctx(PermissionMode::AutoApprove);
+
+        let call = ToolCall {
+            id: "c1".into(),
+            name: "failing_tool".into(),
+            input: json!({}),
+        };
+        let result = orch.execute_single(&call, &ctx).await;
+        assert!(result.output.is_error);
+        assert!(result.output.content.contains("tool execution failed"));
+    }
+
+    #[tokio::test]
+    async fn execute_batch_runs_all_tools() {
+        let mut reg = ToolRegistry::new();
+        reg.register(Arc::new(ReadOnlyTool));
+        reg.register(Arc::new(WriteTool {
+            call_count: AtomicUsize::new(0),
+        }));
+        let registry = Arc::new(reg);
+        let orch = ToolOrchestrator::new(registry);
+        let ctx = make_ctx(PermissionMode::AutoApprove);
+
+        let calls = vec![
+            ToolCall {
+                id: "c1".into(),
+                name: "read_tool".into(),
+                input: json!({}),
+            },
+            ToolCall {
+                id: "c2".into(),
+                name: "write_tool".into(),
+                input: json!({}),
+            },
+        ];
+        let results = orch.execute_batch(&calls, &ctx).await;
+        assert_eq!(results.len(), 2);
+        assert!(results.iter().all(|r| !r.output.is_error));
     }
 }

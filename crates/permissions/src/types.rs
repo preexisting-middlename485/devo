@@ -39,3 +39,63 @@ pub enum PermissionDecision {
     Deny { reason: String },
     Ask { message: String },
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn permission_mode_serde_roundtrip() {
+        for mode in [
+            PermissionMode::AutoApprove,
+            PermissionMode::Interactive,
+            PermissionMode::Deny,
+        ] {
+            let json = serde_json::to_string(&mode).unwrap();
+            let deserialized: PermissionMode = serde_json::from_str(&json).unwrap();
+            assert_eq!(deserialized, mode);
+        }
+    }
+
+    #[test]
+    fn resource_kind_equality() {
+        assert_eq!(ResourceKind::FileRead, ResourceKind::FileRead);
+        assert_ne!(ResourceKind::FileRead, ResourceKind::FileWrite);
+        assert_eq!(
+            ResourceKind::Custom("x".into()),
+            ResourceKind::Custom("x".into())
+        );
+        assert_ne!(
+            ResourceKind::Custom("x".into()),
+            ResourceKind::Custom("y".into())
+        );
+    }
+
+    #[test]
+    fn permission_request_serde() {
+        let req = PermissionRequest {
+            tool_name: "bash".into(),
+            resource: ResourceKind::ShellExec,
+            description: "run ls".into(),
+            target: Some("ls -la".into()),
+        };
+        let json = serde_json::to_string(&req).unwrap();
+        let deserialized: PermissionRequest = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.tool_name, "bash");
+        assert_eq!(deserialized.resource, ResourceKind::ShellExec);
+        assert_eq!(deserialized.target, Some("ls -la".into()));
+    }
+
+    #[test]
+    fn permission_decision_serde() {
+        let decision = PermissionDecision::Deny {
+            reason: "no way".into(),
+        };
+        let json = serde_json::to_string(&decision).unwrap();
+        let deserialized: PermissionDecision = serde_json::from_str(&json).unwrap();
+        match deserialized {
+            PermissionDecision::Deny { reason } => assert_eq!(reason, "no way"),
+            _ => panic!("expected Deny"),
+        }
+    }
+}

@@ -80,3 +80,55 @@ pub trait Tool: Send + Sync {
         self.is_read_only()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn tool_output_success() {
+        let out = ToolOutput::success("done");
+        assert_eq!(out.content, "done");
+        assert!(!out.is_error);
+        assert!(out.metadata.is_none());
+    }
+
+    #[test]
+    fn tool_output_error() {
+        let out = ToolOutput::error("failed");
+        assert_eq!(out.content, "failed");
+        assert!(out.is_error);
+        assert!(out.metadata.is_none());
+    }
+
+    #[test]
+    fn tool_output_serde_roundtrip() {
+        let out = ToolOutput {
+            content: "hello".into(),
+            is_error: false,
+            metadata: Some(serde_json::json!({"key": "val"})),
+        };
+        let json = serde_json::to_string(&out).unwrap();
+        let deserialized: ToolOutput = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.content, "hello");
+        assert!(!deserialized.is_error);
+        assert!(deserialized.metadata.is_some());
+    }
+
+    #[test]
+    fn tool_progress_event_serde() {
+        let event = ToolProgressEvent::Status {
+            message: "compiling...".into(),
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        assert!(json.contains("status"));
+        assert!(json.contains("compiling..."));
+
+        let event = ToolProgressEvent::ByteProgress {
+            done: 100,
+            total: Some(200),
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        assert!(json.contains("byte_progress"));
+    }
+}

@@ -50,3 +50,79 @@ pub struct ModelRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub temperature: Option<f64>,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn tool_definition_serde_roundtrip() {
+        let def = ToolDefinition {
+            name: "bash".into(),
+            description: "run commands".into(),
+            input_schema: json!({"type": "object", "properties": {"cmd": {"type": "string"}}}),
+        };
+        let json = serde_json::to_string(&def).unwrap();
+        let deserialized: ToolDefinition = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.name, "bash");
+        assert_eq!(deserialized.description, "run commands");
+    }
+
+    #[test]
+    fn request_content_text_serde() {
+        let content = RequestContent::Text {
+            text: "hello".into(),
+        };
+        let json = serde_json::to_string(&content).unwrap();
+        assert!(json.contains(r#""type":"text""#));
+        let deserialized: RequestContent = serde_json::from_str(&json).unwrap();
+        match deserialized {
+            RequestContent::Text { text } => assert_eq!(text, "hello"),
+            _ => panic!("expected Text"),
+        }
+    }
+
+    #[test]
+    fn request_content_tool_result_skips_none_error() {
+        let content = RequestContent::ToolResult {
+            tool_use_id: "t1".into(),
+            content: "ok".into(),
+            is_error: None,
+        };
+        let json = serde_json::to_string(&content).unwrap();
+        assert!(!json.contains("is_error"));
+    }
+
+    #[test]
+    fn request_content_tool_result_includes_error() {
+        let content = RequestContent::ToolResult {
+            tool_use_id: "t1".into(),
+            content: "failed".into(),
+            is_error: Some(true),
+        };
+        let json = serde_json::to_string(&content).unwrap();
+        assert!(json.contains("is_error"));
+    }
+
+    #[test]
+    fn model_request_serde() {
+        let req = ModelRequest {
+            model: "claude-sonnet-4-20250514".into(),
+            system: Some("You are helpful.".into()),
+            messages: vec![RequestMessage {
+                role: "user".into(),
+                content: vec![RequestContent::Text { text: "hi".into() }],
+            }],
+            max_tokens: 4096,
+            tools: None,
+            temperature: None,
+        };
+        let json = serde_json::to_string(&req).unwrap();
+        assert!(!json.contains("tools"));
+        assert!(!json.contains("temperature"));
+        let deserialized: ModelRequest = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.model, "claude-sonnet-4-20250514");
+        assert_eq!(deserialized.messages.len(), 1);
+    }
+}

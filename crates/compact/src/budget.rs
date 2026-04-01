@@ -37,3 +37,59 @@ impl Default for TokenBudget {
         Self::new(200_000, 16_000)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_values() {
+        let budget = TokenBudget::default();
+        assert_eq!(budget.context_window, 200_000);
+        assert_eq!(budget.max_output_tokens, 16_000);
+        assert!((budget.compact_threshold - 0.8).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn input_budget_calculation() {
+        let budget = TokenBudget::new(100_000, 10_000);
+        assert_eq!(budget.input_budget(), 90_000);
+    }
+
+    #[test]
+    fn input_budget_saturating_sub() {
+        let budget = TokenBudget::new(100, 200);
+        assert_eq!(budget.input_budget(), 0);
+    }
+
+    #[test]
+    fn should_compact_below_threshold() {
+        let budget = TokenBudget::new(100_000, 10_000);
+        // input_budget = 90_000, threshold = 72_000
+        assert!(!budget.should_compact(70_000));
+    }
+
+    #[test]
+    fn should_compact_above_threshold() {
+        let budget = TokenBudget::new(100_000, 10_000);
+        // input_budget = 90_000, threshold = 72_000
+        assert!(budget.should_compact(75_000));
+    }
+
+    #[test]
+    fn should_compact_at_boundary() {
+        let budget = TokenBudget::new(100_000, 10_000);
+        // input_budget = 90_000, threshold at 0.8 = 72_000
+        assert!(!budget.should_compact(72_000));
+        assert!(budget.should_compact(72_001));
+    }
+
+    #[test]
+    fn serde_roundtrip() {
+        let budget = TokenBudget::new(50_000, 4_000);
+        let json = serde_json::to_string(&budget).unwrap();
+        let deserialized: TokenBudget = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.context_window, 50_000);
+        assert_eq!(deserialized.max_output_tokens, 4_000);
+    }
+}

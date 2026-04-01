@@ -65,3 +65,58 @@ impl SessionState {
             .collect()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn session_config_default_values() {
+        let config = SessionConfig::default();
+        assert_eq!(config.model, "claude-sonnet-4-20250514");
+        assert!(config.system_prompt.is_empty());
+        assert_eq!(config.max_turns, 100);
+        assert_eq!(config.permission_mode, PermissionMode::AutoApprove);
+    }
+
+    #[test]
+    fn session_state_new_initializes_correctly() {
+        let config = SessionConfig::default();
+        let cwd = PathBuf::from("/tmp");
+        let state = SessionState::new(config, cwd.clone());
+
+        assert!(!state.id.is_empty());
+        assert!(state.messages.is_empty());
+        assert_eq!(state.cwd, cwd);
+        assert_eq!(state.turn_count, 0);
+        assert_eq!(state.total_input_tokens, 0);
+        assert_eq!(state.total_output_tokens, 0);
+    }
+
+    #[test]
+    fn session_state_push_message() {
+        let mut state = SessionState::new(SessionConfig::default(), PathBuf::from("/tmp"));
+        state.push_message(Message::user("hello"));
+        state.push_message(Message::assistant_text("hi"));
+        assert_eq!(state.messages.len(), 2);
+    }
+
+    #[test]
+    fn session_state_to_request_messages() {
+        let mut state = SessionState::new(SessionConfig::default(), PathBuf::from("/tmp"));
+        state.push_message(Message::user("hello"));
+        state.push_message(Message::assistant_text("hi"));
+
+        let req_msgs = state.to_request_messages();
+        assert_eq!(req_msgs.len(), 2);
+        assert_eq!(req_msgs[0].role, "user");
+        assert_eq!(req_msgs[1].role, "assistant");
+    }
+
+    #[test]
+    fn session_state_unique_ids() {
+        let s1 = SessionState::new(SessionConfig::default(), PathBuf::from("/tmp"));
+        let s2 = SessionState::new(SessionConfig::default(), PathBuf::from("/tmp"));
+        assert_ne!(s1.id, s2.id);
+    }
+}

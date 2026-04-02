@@ -1,5 +1,5 @@
 [package]
-name = "claw-mcp"
+name = "clawcr-mcp"
 description = "MCP client, connection, discovery, and reconnect"
 version.workspace = true
 edition.workspace = true

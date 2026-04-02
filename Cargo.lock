@@ -273,18 +273,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c8d4a3bb8b1e0c1050499d1815f5ab16d04f0959b233085fb31653fbfc9d98f9"
 
 [[package]]
-name = "claw-cli"
+name = "clawcr-cli"
 version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
  "clap",
- "claw-compact",
- "claw-core",
- "claw-permissions",
- "claw-provider",
- "claw-tasks",
- "claw-tools",
+ "clawcr-compact",
+ "clawcr-core",
+ "clawcr-permissions",
+ "clawcr-provider",
+ "clawcr-tasks",
+ "clawcr-tools",
  "dirs",
  "futures",
  "serde",
@@ -295,7 +295,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "claw-compact"
+name = "clawcr-compact"
 version = "0.1.0"
 dependencies = [
  "anyhow",
@@ -308,16 +308,16 @@ dependencies = [
 ]
 
 [[package]]
-name = "claw-core"
+name = "clawcr-core"
 version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
  "chrono",
- "claw-compact",
- "claw-permissions",
- "claw-provider",
- "claw-tools",
+ "clawcr-compact",
+ "clawcr-permissions",
+ "clawcr-provider",
+ "clawcr-tools",
  "futures",
  "serde",
  "serde_json",
@@ -329,7 +329,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "claw-mcp"
+name = "clawcr-mcp"
 version = "0.1.0"
 dependencies = [
  "async-trait",
@@ -341,7 +341,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "claw-permissions"
+name = "clawcr-permissions"
 version = "0.1.0"
 dependencies = [
  "async-trait",
@@ -353,7 +353,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "claw-provider"
+name = "clawcr-provider"
 version = "0.1.0"
 dependencies = [
  "anyhow",
@@ -371,7 +371,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "claw-tasks"
+name = "clawcr-tasks"
 version = "0.1.0"
 dependencies = [
  "anyhow",
@@ -386,13 +386,13 @@ dependencies = [
 ]
 
 [[package]]
-name = "claw-tools"
+name = "clawcr-tools"
 version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
- "claw-permissions",
- "claw-provider",
+ "clawcr-permissions",
+ "clawcr-provider",
  "futures",
  "glob",
  "regex",

@@ -9,10 +9,10 @@ use async_trait::async_trait;
 use futures::Stream;
 use serde_json::json;
 
-use claw_provider::{ModelProvider, ModelRequest, ModelResponse, StreamEvent};
-use claw_tools::{Tool, ToolContext, ToolOutput};
+use clawcr_provider::{ModelProvider, ModelRequest, ModelResponse, StreamEvent};
+use clawcr_tools::{Tool, ToolContext, ToolOutput};
 
-use claw_core::QueryEvent;
+use clawcr_core::QueryEvent;
 
 // ---------------------------------------------------------------------------
 // ScriptedProvider — plays back a pre-recorded sequence of stream turns
@@ -163,10 +163,10 @@ impl Tool for SpyTool {
 // EventCollector — captures QueryEvents emitted during a query() run
 // ---------------------------------------------------------------------------
 
-pub fn event_collector() -> (claw_core::EventCallback, Arc<Mutex<Vec<QueryEvent>>>) {
+pub fn event_collector() -> (clawcr_core::EventCallback, Arc<Mutex<Vec<QueryEvent>>>) {
     let events: Arc<Mutex<Vec<QueryEvent>>> = Arc::new(Mutex::new(Vec::new()));
     let events_clone = Arc::clone(&events);
-    let callback: claw_core::EventCallback = Arc::new(move |event| {
+    let callback: clawcr_core::EventCallback = Arc::new(move |event| {
         events_clone.lock().unwrap().push(event);
     });
     (callback, events)

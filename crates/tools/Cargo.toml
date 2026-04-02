@@ -1,13 +1,13 @@
 [package]
-name = "claw-tools"
+name = "clawcr-tools"
 description = "Tool trait, registry, execution orchestration, and built-in tools"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 
 [dependencies]
-claw-permissions = { workspace = true }
-claw-provider = { workspace = true }
+clawcr-permissions = { workspace = true }
+clawcr-provider = { workspace = true }
 
 tokio = { workspace = true }
 futures = { workspace = true }

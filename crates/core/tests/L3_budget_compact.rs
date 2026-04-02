@@ -16,12 +16,12 @@ use std::sync::Arc;
 
 use serde_json::json;
 
-use claw_compact::TokenBudget;
-use claw_permissions::PermissionMode;
-use claw_provider::{StopReason, Usage};
-use claw_tools::{ToolOrchestrator, ToolOutput, ToolRegistry};
+use clawcr_compact::TokenBudget;
+use clawcr_permissions::PermissionMode;
+use clawcr_provider::{StopReason, Usage};
+use clawcr_tools::{ToolOrchestrator, ToolOutput, ToolRegistry};
 
-use claw_core::{query, ContentBlock, Message, SessionConfig};
+use clawcr_core::{query, ContentBlock, Message, SessionConfig};
 
 use harness::builders::*;
 use harness::{ScriptedProvider, SpyTool};

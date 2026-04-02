@@ -33,10 +33,10 @@ impl ToolRegistry {
     }
 
     /// Build tool definitions suitable for the model API.
-    pub fn tool_definitions(&self) -> Vec<claw_provider::ToolDefinition> {
+    pub fn tool_definitions(&self) -> Vec<clawcr_provider::ToolDefinition> {
         self.tools
             .values()
-            .map(|t| claw_provider::ToolDefinition {
+            .map(|t| clawcr_provider::ToolDefinition {
                 name: t.name().to_string(),
                 description: t.description().to_string(),
                 input_schema: t.input_schema(),

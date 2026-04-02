@@ -1,5 +1,5 @@
 [package]
-name = "claw-cli"
+name = "clawcr-cli"
 description = "CLI entry point that assembles all crates"
 version.workspace = true
 edition.workspace = true
@@ -10,12 +10,12 @@ name = "claw-rs"
 path = "src/main.rs"
 
 [dependencies]
-claw-core = { workspace = true }
-claw-tools = { workspace = true }
-claw-provider = { workspace = true }
-claw-permissions = { workspace = true }
-claw-tasks = { workspace = true }
-claw-compact = { workspace = true }
+clawcr-core = { workspace = true }
+clawcr-tools = { workspace = true }
+clawcr-provider = { workspace = true }
+clawcr-permissions = { workspace = true }
+clawcr-tasks = { workspace = true }
+clawcr-compact = { workspace = true }
 
 tokio = { workspace = true }
 futures = { workspace = true }

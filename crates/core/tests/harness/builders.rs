@@ -2,10 +2,10 @@ use std::path::PathBuf;
 
 use anyhow::Result;
 
-use claw_permissions::PermissionMode;
-use claw_provider::{ModelResponse, ResponseContent, StopReason, StreamEvent, Usage};
+use clawcr_permissions::PermissionMode;
+use clawcr_provider::{ModelResponse, ResponseContent, StopReason, StreamEvent, Usage};
 
-use claw_core::{SessionConfig, SessionState};
+use clawcr_core::{SessionConfig, SessionState};
 
 /// Build a `SessionState` with sensible defaults for testing.
 /// The user message "hello" is pre-loaded.
@@ -15,14 +15,14 @@ pub fn make_session() -> SessionState {
         ..Default::default()
     };
     let mut session = SessionState::new(config, std::env::temp_dir());
-    session.push_message(claw_core::Message::user("hello"));
+    session.push_message(clawcr_core::Message::user("hello"));
     session
 }
 
 /// Build a `SessionState` with a custom config.
 pub fn make_session_with_config(config: SessionConfig) -> SessionState {
     let mut session = SessionState::new(config, std::env::temp_dir());
-    session.push_message(claw_core::Message::user("hello"));
+    session.push_message(clawcr_core::Message::user("hello"));
     session
 }
 
@@ -33,7 +33,7 @@ pub fn make_session_with_cwd(cwd: PathBuf) -> SessionState {
         ..Default::default()
     };
     let mut session = SessionState::new(config, cwd);
-    session.push_message(claw_core::Message::user("hello"));
+    session.push_message(clawcr_core::Message::user("hello"));
     session
 }
 

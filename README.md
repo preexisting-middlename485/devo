@@ -149,61 +149,61 @@ This project aims to:
 
 | Crate | Purpose | Derived From (Claude Code) |
 |-------|---------|---------------------------|
-| `claw-core` | Message model, state container, main loop, session | `query.ts`, `QueryEngine.ts`, `state/store.ts` |
-| `claw-tools` | Tool trait, registry, execution orchestration, and built-in tools | `Tool.ts`, `tools.ts`, tool service layer |
-| `claw-tasks` | Long task lifecycle and notification mechanism | `Task.ts`, `tasks.ts` |
-| `claw-permissions` | Tool call authorization and rule matching | `types/permissions.ts`, `utils/permissions/` |
-| `claw-provider` | Unified model interface, streaming, retry | `services/api/` |
-| `claw-compact` | Context trimming and token budget control | `services/compact/`, `query/tokenBudget.ts` |
-| `claw-mcp` | MCP client, connection, discovery, reconnect | `services/mcp/` |
-| `claw-cli` | Executable entry point, assembles all crates | CLI layer |
+| `clawcr-core` | Message model, state container, main loop, session | `query.ts`, `QueryEngine.ts`, `state/store.ts` |
+| `clawcr-tools` | Tool trait, registry, execution orchestration, and built-in tools | `Tool.ts`, `tools.ts`, tool service layer |
+| `clawcr-tasks` | Long task lifecycle and notification mechanism | `Task.ts`, `tasks.ts` |
+| `clawcr-permissions` | Tool call authorization and rule matching | `types/permissions.ts`, `utils/permissions/` |
+| `clawcr-provider` | Unified model interface, streaming, retry | `services/api/` |
+| `clawcr-compact` | Context trimming and token budget control | `services/compact/`, `query/tokenBudget.ts` |
+| `clawcr-mcp` | MCP client, connection, discovery, reconnect | `services/mcp/` |
+| `clawcr-cli` | Executable entry point, assembles all crates | CLI layer |
 
 ## 🔍 Crate Overview
 
 <details>
-<summary><b>claw-core</b> — The foundation</summary>
+<summary><b>clawcr-core</b> — The foundation</summary>
 
 Manages how a conversation turn starts, continues, and stops. Defines the unified message model, main loop, and session state. This is the bedrock of the entire system.
 </details>
 
 <details>
-<summary><b>claw-tools</b> — Tools and dispatch</summary>
+<summary><b>clawcr-tools</b> — Tools and dispatch</summary>
 
 Defines tools, schedules them, and ships the built-in file, shell, search, and edit capabilities in one crate.
 </details>
 
 <details>
-<summary><b>claw-tasks</b> — Background task runtime</summary>
+<summary><b>clawcr-tasks</b> — Background task runtime</summary>
 
 Separating tool calls from runtime tasks is critical for supporting long commands, background agents, and completion notifications fed back into the conversation.
 </details>
 
 <details>
-<summary><b>claw-permissions</b> — Authorization layer</summary>
+<summary><b>clawcr-permissions</b> — Authorization layer</summary>
 
 Controls what the agent can do, when it must ask the user, and when to refuse outright. Essential whenever agents read files, write files, or execute commands.
 </details>
 
 <details>
-<summary><b>claw-provider</b> — Model abstraction</summary>
+<summary><b>clawcr-provider</b> — Model abstraction</summary>
 
 Shields the system from differences between model backends. Unifies streaming output, retry logic, and error recovery.
 </details>
 
 <details>
-<summary><b>claw-compact</b> — Context management</summary>
+<summary><b>clawcr-compact</b> — Context management</summary>
 
 Ensures long session stability. Not just "summarization" — applies different compression levels and budget controls based on context to prevent unbounded growth.
 </details>
 
 <details>
-<summary><b>claw-mcp</b> — MCP integration</summary>
+<summary><b>clawcr-mcp</b> — MCP integration</summary>
 
 Connects to external MCP services, bringing remote tools, resources, and prompts into the unified capability surface.
 </details>
 
 <details>
-<summary><b>claw-cli</b> — CLI entry point</summary>
+<summary><b>clawcr-cli</b> — CLI entry point</summary>
 
 Packages the executable as `claw-rs` and wires together the runtime crates for interactive and one-shot use.
 </details>

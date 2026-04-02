@@ -17,11 +17,11 @@ use std::sync::Arc;
 
 use serde_json::json;
 
-use claw_permissions::PermissionMode;
-use claw_provider::{StopReason, Usage};
-use claw_tools::{ToolOrchestrator, ToolOutput, ToolRegistry};
+use clawcr_permissions::PermissionMode;
+use clawcr_provider::{StopReason, Usage};
+use clawcr_tools::{ToolOrchestrator, ToolOutput, ToolRegistry};
 
-use claw_core::{query, AgentError, ContentBlock, Message, QueryEvent, Role, SessionConfig};
+use clawcr_core::{query, AgentError, ContentBlock, Message, QueryEvent, Role, SessionConfig};
 
 use harness::builders::*;
 use harness::{event_collector, ScriptedProvider, SpyTool};
@@ -234,7 +234,7 @@ async fn memory_prefetch_missing_file() {
     let captured = provider.captured_requests.clone();
 
     let (registry, orchestrator) = setup_registry();
-    let mut session = claw_core::SessionState::new(config, tmp.clone());
+    let mut session = clawcr_core::SessionState::new(config, tmp.clone());
     session.push_message(Message::user("hello"));
 
     query(&mut session, &provider, registry, &orchestrator, None)

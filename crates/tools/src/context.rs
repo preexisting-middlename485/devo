@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use claw_permissions::PermissionPolicy;
+use clawcr_permissions::PermissionPolicy;
 
 /// The execution context provided to every tool call.
 ///

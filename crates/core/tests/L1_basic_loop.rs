@@ -5,11 +5,11 @@ use std::sync::Arc;
 
 use serde_json::json;
 
-use claw_permissions::PermissionMode;
-use claw_provider::{StopReason, Usage};
-use claw_tools::{ToolOrchestrator, ToolRegistry};
+use clawcr_permissions::PermissionMode;
+use clawcr_provider::{StopReason, Usage};
+use clawcr_tools::{ToolOrchestrator, ToolRegistry};
 
-use claw_core::{query, ContentBlock, QueryEvent, Role, SessionConfig};
+use clawcr_core::{query, ContentBlock, QueryEvent, Role, SessionConfig};
 
 use harness::builders::*;
 use harness::{event_collector, ScriptedProvider, SpyTool};
@@ -224,7 +224,7 @@ async fn max_turns_exceeded() {
 
     let result = query(&mut session, &provider, registry, &orchestrator, None).await;
     match result {
-        Err(claw_core::AgentError::MaxTurnsExceeded(n)) => assert_eq!(n, 2),
+        Err(clawcr_core::AgentError::MaxTurnsExceeded(n)) => assert_eq!(n, 2),
         other => panic!("expected MaxTurnsExceeded(2), got {:?}", other),
     }
 }

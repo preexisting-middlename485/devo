@@ -3,8 +3,8 @@ use std::sync::Arc;
 use futures::StreamExt;
 use tracing::{debug, info, warn};
 
-use claw_provider::{ModelProvider, ModelRequest, ResponseContent, StopReason, StreamEvent};
-use claw_tools::{ToolCall, ToolContext, ToolOrchestrator, ToolRegistry};
+use clawcr_provider::{ModelProvider, ModelRequest, ResponseContent, StopReason, StreamEvent};
+use clawcr_tools::{ToolCall, ToolContext, ToolOrchestrator, ToolRegistry};
 
 use crate::{AgentError, ContentBlock, Message, Role, SessionState};
 
@@ -349,7 +349,7 @@ pub async fn query(
         // Execute tool calls
         let tool_ctx = ToolContext {
             cwd: session.cwd.clone(),
-            permissions: Arc::new(claw_permissions::RuleBasedPolicy::new(
+            permissions: Arc::new(clawcr_permissions::RuleBasedPolicy::new(
                 session.config.permission_mode,
             )),
             session_id: session.id.clone(),
@@ -394,11 +394,11 @@ mod tests {
     use futures::Stream;
     use serde_json::json;
 
-    use claw_permissions::PermissionMode;
-    use claw_provider::{
+    use clawcr_permissions::PermissionMode;
+    use clawcr_provider::{
         ModelRequest, ModelResponse, ResponseContent, StopReason, StreamEvent, Usage,
     };
-    use claw_tools::{Tool, ToolOrchestrator, ToolOutput, ToolRegistry};
+    use clawcr_tools::{Tool, ToolOrchestrator, ToolOutput, ToolRegistry};
 
     use super::query;
     use crate::{ContentBlock, Message, SessionConfig, SessionState};
@@ -408,7 +408,7 @@ mod tests {
     }
 
     #[async_trait]
-    impl claw_provider::ModelProvider for SingleToolUseProvider {
+    impl clawcr_provider::ModelProvider for SingleToolUseProvider {
         async fn complete(&self, _request: ModelRequest) -> Result<ModelResponse> {
             unreachable!("tests stream responses only")
         }
@@ -495,7 +495,7 @@ mod tests {
 
         async fn execute(
             &self,
-            _ctx: &claw_tools::ToolContext,
+            _ctx: &clawcr_tools::ToolContext,
             _input: serde_json::Value,
         ) -> Result<ToolOutput> {
             Ok(ToolOutput::success("ok"))

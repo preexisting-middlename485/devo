@@ -1,5 +1,5 @@
 [package]
-name = "claw-compact"
+name = "clawcr-compact"
 description = "Context trimming and token budget control"
 version.workspace = true
 edition.workspace = true

@@ -4,9 +4,9 @@ use std::sync::Arc;
 use anyhow::Result;
 use clap::Parser;
 
-use claw_core::{query, Message, QueryEvent, SessionConfig, SessionState};
-use claw_permissions::PermissionMode;
-use claw_tools::{ToolOrchestrator, ToolRegistry};
+use clawcr_core::{query, Message, QueryEvent, SessionConfig, SessionState};
+use clawcr_permissions::PermissionMode;
+use clawcr_tools::{ToolOrchestrator, ToolRegistry};
 
 mod config;
 mod onboarding;
@@ -108,7 +108,7 @@ async fn main() -> Result<()> {
 
     // Register tools
     let mut registry = ToolRegistry::new();
-    claw_tools::register_builtin_tools(&mut registry);
+    clawcr_tools::register_builtin_tools(&mut registry);
     let registry = Arc::new(registry);
     let orchestrator = ToolOrchestrator::new(Arc::clone(&registry));
 
@@ -153,13 +153,13 @@ async fn main() -> Result<()> {
                 .messages
                 .iter()
                 .rev()
-                .find(|m| matches!(m.role, claw_core::Role::Assistant));
+                .find(|m| matches!(m.role, clawcr_core::Role::Assistant));
             if let Some(msg) = last_assistant {
                 let text: String = msg
                     .content
                     .iter()
                     .filter_map(|b| match b {
-                        claw_core::ContentBlock::Text { text } => Some(text.as_str()),
+                        clawcr_core::ContentBlock::Text { text } => Some(text.as_str()),
                         _ => None,
                     })
                     .collect::<Vec<_>>()

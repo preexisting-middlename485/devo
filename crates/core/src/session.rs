@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
-use claw_compact::TokenBudget;
-use claw_permissions::PermissionMode;
+use clawcr_compact::TokenBudget;
+use clawcr_permissions::PermissionMode;
 
 use crate::Message;
 
@@ -66,7 +66,7 @@ impl SessionState {
         self.messages.push(msg);
     }
 
-    pub fn to_request_messages(&self) -> Vec<claw_provider::RequestMessage> {
+    pub fn to_request_messages(&self) -> Vec<clawcr_provider::RequestMessage> {
         self.messages
             .iter()
             .map(|m| m.to_request_message())

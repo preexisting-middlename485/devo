@@ -1,15 +1,15 @@
 [package]
-name = "claw-core"
+name = "clawcr-core"
 description = "Message model, session state, and agent main loop"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 
 [dependencies]
-claw-tools = { workspace = true }
-claw-provider = { workspace = true }
-claw-permissions = { workspace = true }
-claw-compact = { workspace = true }
+clawcr-tools = { workspace = true }
+clawcr-provider = { workspace = true }
+clawcr-permissions = { workspace = true }
+clawcr-compact = { workspace = true }
 
 tokio = { workspace = true }
 tokio-stream = { workspace = true }
@@ -30,7 +30,7 @@ async-trait = { workspace = true }
 serde_json = { workspace = true }
 anyhow = { workspace = true }
 uuid = { workspace = true }
-claw-provider = { workspace = true }
-claw-tools = { workspace = true }
-claw-permissions = { workspace = true }
-claw-compact = { workspace = true }
+clawcr-provider = { workspace = true }
+clawcr-tools = { workspace = true }
+clawcr-permissions = { workspace = true }
+clawcr-compact = { workspace = true }

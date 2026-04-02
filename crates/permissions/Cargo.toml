@@ -1,5 +1,5 @@
 [package]
-name = "claw-permissions"
+name = "clawcr-permissions"
 description = "Tool call authorization and rule matching"
 version.workspace = true
 edition.workspace = true

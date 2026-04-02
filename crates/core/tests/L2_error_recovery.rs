@@ -17,10 +17,10 @@ use std::sync::Arc;
 
 use serde_json::json;
 
-use claw_provider::StopReason;
-use claw_tools::{ToolOrchestrator, ToolRegistry};
+use clawcr_provider::StopReason;
+use clawcr_tools::{ToolOrchestrator, ToolRegistry};
 
-use claw_core::{query, AgentError, ContentBlock, Message};
+use clawcr_core::{query, AgentError, ContentBlock, Message};
 
 use harness::builders::*;
 use harness::{event_collector, ScriptedProvider, SpyTool};

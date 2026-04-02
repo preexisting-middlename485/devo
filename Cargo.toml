@@ -19,13 +19,13 @@ rust-version = "1.75"
 
 [workspace.dependencies]
 # Internal crates
-claw-core = { path = "crates/core" }
-claw-tools = { path = "crates/tools" }
-claw-provider = { path = "crates/provider" }
-claw-permissions = { path = "crates/permissions" }
-claw-tasks = { path = "crates/tasks" }
-claw-compact = { path = "crates/compact" }
-claw-mcp = { path = "crates/mcp" }
+clawcr-core = { path = "crates/core" }
+clawcr-tools = { path = "crates/tools" }
+clawcr-provider = { path = "crates/provider" }
+clawcr-permissions = { path = "crates/permissions" }
+clawcr-tasks = { path = "crates/tasks" }
+clawcr-compact = { path = "crates/compact" }
+clawcr-mcp = { path = "crates/mcp" }
 
 # Async runtime
 tokio = { version = "1", features = ["full"] }

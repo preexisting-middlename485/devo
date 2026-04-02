@@ -8,20 +8,20 @@
 //!   - Model `qwen2.5:3b` pulled (`ollama pull qwen2.5:3b`)
 //!
 //! Run:
-//!   cargo test -p claw-core --test e2e_ollama -- --ignored --nocapture
+//!   cargo test -p claw-code-rust-core --test e2e_ollama -- --ignored --nocapture
 
 #[allow(dead_code, unused_imports)]
 mod harness;
 
 use std::sync::{Arc, Mutex};
 
-use claw_compact::TokenBudget;
-use claw_core::{
+use clawcr_compact::TokenBudget;
+use clawcr_core::{
     query, ContentBlock, EventCallback, Message, QueryEvent, Role, SessionConfig, SessionState,
 };
-use claw_permissions::PermissionMode;
-use claw_provider::openai_compat::OpenAICompatProvider;
-use claw_tools::{ToolOrchestrator, ToolRegistry};
+use clawcr_permissions::PermissionMode;
+use clawcr_provider::openai_compat::OpenAICompatProvider;
+use clawcr_tools::{ToolOrchestrator, ToolRegistry};
 
 const OLLAMA_BASE: &str = "http://localhost:11434/v1";
 const MODEL: &str = "qwen2.5:3b";
@@ -315,7 +315,7 @@ async fn e2e_memory_prefetch_claude_md() {
     let orchestrator = ToolOrchestrator::new(Arc::clone(&registry));
 
     // Create a temp directory with a CLAUDE.md containing a secret phrase
-    let tmp = std::env::temp_dir().join(format!("claw_e2e_{}", std::process::id()));
+    let tmp = std::env::temp_dir().join(format!("clawcr_e2e_{}", std::process::id()));
     std::fs::create_dir_all(&tmp).unwrap();
     let claude_md = tmp.join("CLAUDE.md");
     std::fs::write(
@@ -450,7 +450,7 @@ async fn e2e_auto_compact_on_budget_threshold() {
 #[tokio::test]
 #[ignore = "requires local Ollama"]
 async fn e2e_micro_compact_large_tool_result() {
-    use claw_tools::Tool;
+    use clawcr_tools::Tool;
 
     // A custom tool that returns a very large result
     struct BigResultTool;
@@ -471,12 +471,12 @@ async fn e2e_micro_compact_large_tool_result() {
         }
         async fn execute(
             &self,
-            _ctx: &claw_tools::ToolContext,
+            _ctx: &clawcr_tools::ToolContext,
             _input: serde_json::Value,
-        ) -> anyhow::Result<claw_tools::ToolOutput> {
+        ) -> anyhow::Result<clawcr_tools::ToolOutput> {
             // Generate >10KB result to trigger micro_compact
             let big = "x".repeat(20_000);
-            Ok(claw_tools::ToolOutput::success(big))
+            Ok(clawcr_tools::ToolOutput::success(big))
         }
         fn is_read_only(&self) -> bool {
             true
@@ -563,7 +563,7 @@ async fn e2e_micro_compact_large_tool_result() {
 async fn e2e_tool_use_round_trip() {
     let provider = make_provider();
     let mut reg = ToolRegistry::new();
-    claw_tools::register_builtin_tools(&mut reg);
+    clawcr_tools::register_builtin_tools(&mut reg);
     let registry = Arc::new(reg);
     let orchestrator = ToolOrchestrator::new(Arc::clone(&registry));
     let (callback, events) = event_collector();

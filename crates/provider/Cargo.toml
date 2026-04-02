@@ -1,5 +1,5 @@
 [package]
-name = "claw-provider"
+name = "clawcr-provider"
 description = "Unified model provider interface with streaming support"
 version.workspace = true
 edition.workspace = true

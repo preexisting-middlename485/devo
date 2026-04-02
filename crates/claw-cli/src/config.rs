@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
-use claw_provider::ModelProvider;
+use clawcr_provider::ModelProvider;
 
 /// Persisted provider configuration.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -157,9 +157,9 @@ fn build_provider(
 
             let p = if let Some(url) = base_url {
                 eprintln!("  base_url: {}", url);
-                claw_provider::anthropic::AnthropicProvider::new_with_url(&key, url)
+                clawcr_provider::anthropic::AnthropicProvider::new_with_url(&key, url)
             } else {
-                claw_provider::anthropic::AnthropicProvider::new(&key)
+                clawcr_provider::anthropic::AnthropicProvider::new(&key)
             };
             Ok(ResolvedProvider {
                 provider: Box::new(p),
@@ -171,7 +171,7 @@ fn build_provider(
             let raw_url = base_url.as_deref().unwrap_or(ollama_url);
             let url = ensure_openai_v1(raw_url);
             eprintln!("Using Ollama (url: {}, model: {})", url, model);
-            let mut p = claw_provider::openai_compat::OpenAICompatProvider::new(&url);
+            let mut p = clawcr_provider::openai_compat::OpenAICompatProvider::new(&url);
             if let Some(ref key) = api_key {
                 p = p.with_api_key(key);
             }
@@ -185,7 +185,7 @@ fn build_provider(
             let url = ensure_openai_v1(&raw_url);
             let model = model.unwrap_or_else(|| "gpt-4o".into());
             eprintln!("Using OpenAI-compat (url: {}, model: {})", url, model);
-            let mut p = claw_provider::openai_compat::OpenAICompatProvider::new(&url);
+            let mut p = clawcr_provider::openai_compat::OpenAICompatProvider::new(&url);
             if let Some(key) = api_key {
                 p = p.with_api_key(key);
             }

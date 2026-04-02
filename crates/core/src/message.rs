@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use claw_provider::{RequestContent, RequestMessage};
+use clawcr_provider::{RequestContent, RequestMessage};
 
 /// Conversation role.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

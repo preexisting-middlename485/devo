@@ -1,5 +1,5 @@
 [package]
-name = "claw-tasks"
+name = "clawcr-tasks"
 description = "Long-running task lifecycle and notification mechanism"
 version.workspace = true
 edition.workspace = true

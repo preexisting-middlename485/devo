@@ -1,6 +1,6 @@
 use crate::{Tool, ToolContext, ToolOutput};
 use async_trait::async_trait;
-use claw_permissions::{PermissionDecision, PermissionRequest, ResourceKind};
+use clawcr_permissions::{PermissionDecision, PermissionRequest, ResourceKind};
 use serde_json::json;
 use std::process::Stdio;
 use tokio::process::Command;

@@ -50,6 +50,7 @@ Subsystem crates consume normalized config only:
 - `clawcr-core::context` consumes compaction and summary-model settings
 - `clawcr-core::conversation` consumes session-title policy and title-model settings
 - `clawcr-safety` consumes redaction, sandbox, and approval defaults
+- `clawcr-tools` consumes runtime enablement, timeout, truncation, and search defaults
 - `clawcr-server` consumes listener and transport defaults
 
 ## File Locations and Formats
@@ -102,6 +103,7 @@ pub struct AppConfig {
     pub context: ContextConfig,
     pub conversation: ConversationConfig,
     pub safety: SafetyConfig,
+    pub tools: ToolRuntimeConfig,
     pub server: ServerConfig,
     pub logging: LoggingConfig,
     pub project_root_markers: Vec<String>,
@@ -120,6 +122,35 @@ pub struct ContextConfig {
 ```rust
 pub struct ConversationConfig {
     pub session_titles: SessionTitleConfig,
+}
+```
+
+```rust
+pub struct SafetyConfig {
+    pub policy_model: PolicyModelSelection,
+}
+```
+
+```rust
+pub struct ToolRuntimeConfig {
+    pub enabled_tools: Vec<String>,
+    pub shell: ShellToolConfig,
+    pub file_search: FileSearchToolConfig,
+    pub max_parallel_read_tools: u16,
+}
+
+pub struct ShellToolConfig {
+    pub default_timeout_ms: u64,
+    pub max_timeout_ms: u64,
+    pub stream_output: bool,
+    pub max_stdout_bytes: usize,
+    pub max_stderr_bytes: usize,
+}
+
+pub struct FileSearchToolConfig {
+    pub prefer_rg: bool,
+    pub max_results: u32,
+    pub max_preview_bytes: usize,
 }
 ```
 
@@ -152,6 +183,13 @@ pub enum SessionTitleMode {
 }
 
 pub enum TitleModelSelection {
+    UseTurnModel,
+    UseConfiguredModel { model_slug: String },
+}
+```
+
+```rust
+pub enum PolicyModelSelection {
     UseTurnModel,
     UseConfiguredModel { model_slug: String },
 }
@@ -214,6 +252,13 @@ pub trait AppConfigResolver {
         turn_model: &'a ModelConfig,
         catalog: &'a dyn ModelCatalog,
     ) -> Result<&'a ModelConfig, AppConfigError>;
+
+    fn resolve_policy_model<'a>(
+        &'a self,
+        app_config: &'a AppConfig,
+        turn_model: &'a ModelConfig,
+        catalog: &'a dyn ModelCatalog,
+    ) -> Result<&'a ModelConfig, AppConfigError>;
 }
 ```
 
@@ -263,6 +308,23 @@ Rationale:
 - Claude Code's provisional-title-then-upgrade behavior is useful, but the final model choice should remain operator-configurable
 - this keeps session naming cost and latency tunable without coupling it to compaction policy
 
+## Safety Policy Model Contract
+
+Model-guided safety policy must use an explicit app-level model-selection setting.
+
+Rules:
+
+- `PolicyModelSelection::UseTurnModel` means policy classification uses the same resolved model as the active turn
+- `PolicyModelSelection::UseConfiguredModel { model_slug }` means policy classification resolves a separate model by slug
+- if the configured policy model is missing, config validation fails
+- if the configured policy model lacks the capabilities required for policy classification, config validation fails
+- policy-model selection only affects model-guided policy evaluation and must not bypass deterministic enforcement in `clawcr-safety`
+
+Rationale:
+
+- this keeps the cost, latency, and trust boundary of model-guided policy configurable
+- it avoids hard-coding either “always active model” or “always smaller classifier” into the architecture
+
 ## State Transitions and Lifecycle
 
 Config lifecycle:
@@ -299,9 +361,13 @@ Required validations:
 - referenced default model must exist if set
 - referenced summary model must exist if `UseConfiguredModel` is used
 - referenced title model must exist if `UseConfiguredModel` is used
+- referenced policy model must exist if `UseConfiguredModel` is used
 - `auto_compact_percent`, if set, must be between 1 and 99
 - `preserve_recent_turns` must be at least 1
 - `max_title_chars` must be between 20 and 120
+- `tools.enabled_tools` entries must refer to known tool names
+- `tools.shell.default_timeout_ms` must be less than or equal to `tools.shell.max_timeout_ms`
+- `tools.file_search.max_results` must be at least 1
 - server listener config must not define duplicate identical endpoints
 - `RequireGitGhostCommit` must be rejected when running in environments that explicitly disable git integration
 
@@ -333,6 +399,7 @@ Logs must include:
 - resolved summary-model mode
 - resolved session-title mode
 - resolved session-title generation model mode
+- resolved safety policy model mode
 - resolved snapshot backend mode
 - whether project config was loaded
 - active project-root markers
@@ -359,6 +426,7 @@ Required tests:
 - project-root marker parsing
 - summary-model resolution for both enum variants
 - session-title model resolution for both enum variants
+- safety policy model resolution for both enum variants
 - explicit-only session-title mode disables automatic generation
 - snapshot-backend mode validation
 - missing referenced model validation
@@ -370,6 +438,7 @@ Acceptance criteria:
 - runtime startup produces one normalized `AppConfig`
 - context compaction can resolve its summary model from config without ad hoc branching
 - conversation runtime can resolve its title-generation policy and model without hard-coded defaults
+- safety runtime can resolve its policy-classification model without hard-coded defaults
 - project overrides can change summary-model selection without modifying model catalog files
 
 ## Dependencies With Other Modules
@@ -377,7 +446,8 @@ Acceptance criteria:
 - Language Model provides the catalog used to resolve configured model slugs
 - Context Management consumes summary-model selection and compaction defaults
 - Conversation consumes session-title policy and title-model selection
-- Safety consumes policy defaults and redaction toggles
+- Safety consumes policy defaults, policy-model selection, and redaction toggles
+- Tools consumes runtime enablement and execution limits
 - Server API consumes transport defaults
 
 ## Open Questions and Assumptions

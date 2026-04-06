@@ -65,126 +65,7 @@ The overview already defines deterministic redaction, sandboxing, and user appro
 
 Sandbox manager integration belongs under `clawcr-safety`; it is not a standalone crate in the target design.
 
-## Core Data Structures
-
-```rust
-pub enum ResourceKind {
-    FileRead,
-    FileWrite,
-    ShellExec,
-    Network,
-    McpServer,
-    Custom(String),
-}
-
-pub struct OperationTarget {
-    pub path: Option<PathBuf>,
-    pub host: Option<String>,
-    pub command: Option<Vec<String>>,
-}
-```
-
-```rust
-pub enum ApprovalScope {
-    Once,
-    Turn,
-    Session,
-    PathPrefix(PathBuf),
-    Host(String),
-    Tool(String),
-}
-```
-
-```rust
-pub struct PermissionRequest {
-    pub tool_name: String,
-    pub resource: ResourceKind,
-    pub description: String,
-    pub target: OperationTarget,
-    pub requested_permissions: Option<PermissionProfile>,
-    pub justification: Option<String>,
-}
-```
-
-```rust
-pub enum PermissionDecision {
-    Allow {
-        scope: ApprovalScope,
-        reason: PermissionReason,
-    },
-    Deny {
-        reason: PermissionReason,
-    },
-    Ask {
-        prompt: ApprovalPrompt,
-        suggested_scope: ApprovalScope,
-        reason: PermissionReason,
-    },
-}
-```
-
-```rust
-pub struct SecretRedactionReport {
-    pub match_count: u32,
-    pub detector_kinds: Vec<SecretDetectorKind>,
-}
-```
-
-```rust
-pub enum SecretDetectorKind {
-    OpenAiKey,
-    AwsAccessKeyId,
-    BearerToken,
-    SecretAssignment,
-    Custom(String),
-}
-```
-
-```rust
-pub enum SecretScope {
-    Global,
-    Workspace(String),
-}
-```
-
-```rust
-pub struct PolicySnapshot {
-    pub declared_sandbox_mode: SandboxMode,
-    pub effective_sandbox_policy: EffectiveSandboxPolicy,
-    pub readable_roots: Vec<PathBuf>,
-    pub writable_roots: Vec<PathBuf>,
-    pub network: NetworkPolicy,
-    pub rules: Vec<PermissionRule>,
-    pub cached_approvals: Vec<CachedApproval>,
-    pub denied_history: Vec<DeniedOperation>,
-}
-```
-
-```rust
-pub struct EffectiveSandboxPolicy {
-    pub sandbox_type: PlatformSandboxType,
-    pub sandbox_policy: SandboxPolicyRecord,
-    pub file_system_policy: FileSystemPolicyRecord,
-    pub network_policy: NetworkPolicy,
-}
-```
-
-```rust
-pub enum PlatformSandboxType {
-    None,
-    MacOsSeatbelt,
-    LinuxSeccomp,
-    WindowsRestrictedToken,
-}
-```
-
-`PermissionReason` must be structured, not just free-form text:
-
-- rule matched
-- mode default
-- sandbox restriction
-- secret risk
-- invalid target
+Show have a sanitizer to implement regex patter match to redact prompt sensitive data.
 
 ## Secret Protection
 
@@ -203,6 +84,39 @@ Required detector categories:
 - password-like assignments
 - user-defined custom regexes
 
+Pluggable detectors are required. The redaction pipeline must support both built-in detectors and externally configured detector implementations.
+
+Required detector interfaces:
+
+```rust
+pub struct SecretMatch {
+    pub start: usize,
+    pub end: usize,
+    pub placeholder: String,
+    pub confidence: SecretMatchConfidence,
+}
+```
+
+```rust
+pub trait SecretDetector: Send + Sync {
+    fn detector_id(&self) -> &'static str;
+    fn detect(&self, input: &str) -> Vec<SecretMatch>;
+}
+```
+
+```rust
+pub trait SecretDetectorRegistry: Send + Sync {
+    fn all(&self) -> Vec<Arc<dyn SecretDetector>>;
+}
+```
+
+Rules:
+
+- built-in regex-based detectors must implement `SecretDetector`
+- custom regex detectors loaded from config must also be compiled into `SecretDetector` implementations
+- detector implementations must be deterministic and side-effect free
+- the redaction pipeline must merge overlapping matches deterministically, preferring the longest high-confidence match first
+
 Required placeholder form:
 
 ```text
@@ -217,29 +131,8 @@ Rules:
 - The default detector set must include regex detectors for OpenAI-style API keys, AWS access key IDs, bearer tokens, and common `key/token/secret/password = value` assignments.
 - Detectors must be compiled once at startup or static init time, not per request.
 - Redaction is best-effort pattern matching; failure to match an unknown secret format must not be represented as proof of safety.
-
-## Secret Storage and Lookup
-
-The safety subsystem must distinguish between redaction and secret storage.
-
-Required interface:
-
-```rust
-pub trait SecretsBackend: Send + Sync {
-    fn set(&self, scope: &SecretScope, name: &SecretName, value: &str) -> Result<(), SecretError>;
-    fn get(&self, scope: &SecretScope, name: &SecretName) -> Result<Option<String>, SecretError>;
-    fn delete(&self, scope: &SecretScope, name: &SecretName) -> Result<bool, SecretError>;
-    fn list(&self, scope_filter: Option<&SecretScope>) -> Result<Vec<SecretListEntry>, SecretError>;
-}
-```
-
-Rules:
-
-- the first implementation may support only a local backend
-- secret names must use a restricted stable format such as `A-Z`, `0-9`, and `_`
-- workspace-scoped secrets should derive a stable environment identifier from the git repo root when available, otherwise from a canonicalized cwd hash
-- secret values must not be stored in normal app config files
-- local tool execution may resolve secrets by scope, but provider-visible text must always pass through redaction first
+- detector order must not change redaction output for the same configured detector set
+- redaction reports should record which `detector_id` produced each accepted match
 
 ## Access Control Policy
 
@@ -251,8 +144,26 @@ Policy modes supported by the overview:
 
 Implementation note:
 
-- `ModelGuidedPolicy` may use a lightweight local classifier or main-model subcall later, but the runtime contract remains `decide(operation) -> allow | deny | request_approval`.
+- `ModelGuidedPolicy` must use a configurable model-selection policy rather than implicitly binding to either the active main model or a fixed classifier model.
 - Even in model-guided mode, final enforcement remains deterministic in code.
+
+Required model-selection contract:
+
+```rust
+pub enum PolicyModelSelection {
+    UseTurnModel,
+    UseConfiguredModel { model_slug: String },
+}
+```
+
+Rules:
+
+- `UseTurnModel` means policy classification uses the same resolved model as the active turn
+- `UseConfiguredModel { model_slug }` means policy classification resolves a separate model by slug
+- if the configured policy model is missing, config validation fails
+- if the configured policy model lacks the capabilities required for structured policy classification, config validation fails
+- model-guided policy may still be disabled entirely at the policy-mode level even when a policy model is configured
+- policy-model selection controls classification only; sandbox enforcement and final permission application remain deterministic in code
 
 Required policy interface:
 
@@ -316,7 +227,7 @@ Platform backend mapping:
 - Linux: bubblewrap/seccomp primary path, legacy Landlock fallback only when policy shape is equivalent
 - Windows: restricted token plus ACL/firewall/environment preparation
 
-Linux requirements derived from Codex:
+Linux requirements:
 
 - prefer a system `bwrap` outside the workspace when available
 - fall back to a bundled helper when system `bwrap` is unavailable
@@ -326,7 +237,7 @@ Linux requirements derived from Codex:
 - when network is restricted, isolate the network namespace unless managed proxy mode is active
 - managed proxy mode may allow only proxy-routed traffic and should block arbitrary new local socket creation after setup
 
-Windows requirements derived from Codex:
+Windows requirements:
 
 - create restricted tokens rather than relying only on high-level command wrappers
 - apply allow and deny ACLs on resolved paths before process creation
@@ -446,6 +357,8 @@ Logs:
 Required tests:
 
 - regex-based secret detection
+- pluggable detector registration and execution
+- overlapping detector match resolution
 - path normalization and root matching
 - approval scope caching
 - denial persistence
@@ -472,8 +385,3 @@ Acceptance criteria:
 Assumptions:
 
 - Session-scoped approvals should survive resume because the overview explicitly mentions persisted permission state.
-
-Open questions:
-
-- Whether redaction should support pluggable enterprise secret detectors.
-- Whether model-guided policy should use the active main model or a dedicated smaller classifier model.

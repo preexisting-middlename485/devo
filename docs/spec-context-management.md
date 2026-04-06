@@ -24,7 +24,7 @@ The overview directly specifies threshold-based compaction and recoverable histo
 
 - Claude Code's compaction and micro-compaction model, which treats prompt management as a derived view.
 - history manager, which preserves structural invariants such as paired tool calls and outputs during history normalization.
-- token-estimation design, which is simple enough to run before every turn: normalize history into a model-visible view, estimate text and structured items from serialized bytes, treat encoded reasoning specially, discount inline image payloads, and reconcile later with authoritative provider usage.
+- Codex's token-estimation design, which is simple enough to run before every turn: normalize history into a model-visible view, estimate text and structured items from serialized bytes, treat encoded reasoning specially, discount inline image payloads, and reconcile later with authoritative provider usage.
 
 ## Design Goals
 
@@ -48,81 +48,6 @@ The overview directly specifies threshold-based compaction and recoverable histo
 - invoking compaction during the turn lifecycle
 - storing compaction items and snapshot references
 - rebuilding prompt views from summary plus recent raw items
-
-## Core Data Structures
-
-```rust
-pub struct TokenBudget {
-    pub context_window: u32,
-    pub effective_input_budget: u32,
-    pub max_output_tokens: u32,
-    pub auto_compact_token_limit: u32,
-    pub per_item_truncation: TruncationPolicyConfig,
-    pub summary_model: SummaryModelSelection,
-}
-```
-
-```rust
-pub struct ContextWindowEstimate {
-    pub system_tokens: u32,
-    pub tool_tokens: u32,
-    pub history_tokens: u32,
-    pub pending_input_tokens: u32,
-    pub total_tokens: u32,
-}
-```
-
-```rust
-pub struct TokenUsageBaseline {
-    pub provider_total_tokens: Option<u32>,
-    pub history_items_included: u64,
-    pub estimated_new_tokens_since_baseline: u32,
-}
-```
-
-```rust
-pub struct CompactionSnapshot {
-    pub id: Uuid,
-    pub session_id: SessionId,
-    pub turn_id: TurnId,
-    pub replaced_item_range: std::ops::RangeInclusive<u64>,
-    pub summary_item_id: ItemId,
-    pub created_at: DateTime<Utc>,
-    pub backend: SnapshotBackendRecord,
-}
-```
-
-```rust
-pub enum PromptSegment {
-    BaseInstructions,
-    SafetyConstraints,
-    Summary(ItemId),
-    RawItem(ItemId),
-    CurrentInput,
-}
-```
-
-```rust
-pub enum SummaryModelSelection {
-    UseTurnModel,
-    UseConfiguredModel { model_slug: String },
-}
-```
-
-```rust
-pub enum SnapshotBackendRecord {
-    JsonOnly {
-        snapshot_path: PathBuf,
-    },
-    GitGhostCommit {
-        repo_root: PathBuf,
-        commit_id: String,
-        parent_commit_id: Option<String>,
-        preserved_untracked_files: Vec<PathBuf>,
-        preserved_untracked_dirs: Vec<PathBuf>,
-    },
-}
-```
 
 ## Token Estimation
 
@@ -264,7 +189,7 @@ Compaction must also be callable manually.
 Protected content:
 
 - current user input
-- last `K` complete turns, where `K` defaults to 2
+- last `K` complete turns, where `K` defaults to 3
 - any unresolved approval or tool interaction
 
 Eligible content:
@@ -410,7 +335,7 @@ The runtime must use JSON-only snapshots when:
 - creating canonical JSON snapshot metadata
 - recording which backend succeeded
 
-`clawcr-code` or a future `clawcr-git` integration layer owns:
+`clawcr-core::code` or a future `clawcr-git` integration layer owns:
 
 - trusted-repository detection
 - detached commit capture and restore plumbing
@@ -533,9 +458,8 @@ Acceptance criteria:
 Assumptions:
 
 - The first implementation uses a single summarizer model call rather than multi-stage compaction.
-- `K = 2` recent turns preserved intact is the default starting point.
 - JSON snapshot metadata is always the canonical recovery record, even when git snapshots are enabled.
 
 Open questions:
 
-- Whether git-backed snapshot capture should stay in `clawcr-code` or move into a dedicated git integration module if the feature grows.
+- Whether git-backed snapshot capture should stay in `clawcr-core::code` or move into a dedicated git integration module if the feature grows.

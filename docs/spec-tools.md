@@ -9,7 +9,7 @@ Primary goals:
 - define a typed tool contract rather than free-form command dispatch
 - separate tool declaration, planning-time exposure, approval checks, and execution
 - make every tool invocation replayable and observable
-- support both built-in tools and future dynamic tool providers
+- support built-in and runtime-native tools owned by `clawcr-tools`
 
 ## Scope
 
@@ -23,9 +23,15 @@ In scope:
 
 Out of scope:
 
-- MCP protocol details for remote third-party tools
+- MCP server lifecycle, discovery, and transport details
+- skill discovery and skill injection behavior
 - provider-specific tool-call wire formats
 - UI rendering of tool events
+
+Related specifications:
+
+- MCP-specific external capability integration is defined in [spec-mcp.md](./spec-mcp.md)
+- skill discovery and structured skill references are defined in [spec-skills.md](./spec-skills.md)
 
 ## Module Responsibilities and Boundaries
 
@@ -55,6 +61,10 @@ Out of scope:
 - turn-level orchestration
 - tool-call scheduling
 - cancellation and interruption propagation
+
+`clawcr-mcp` owns:
+
+- MCP server discovery and MCP tool/resource bridging before those capabilities are handed to `clawcr-tools`
 
 ## Core Data Structures
 
@@ -179,6 +189,7 @@ Rules:
 - schema validation runs before approval resolution and before backend execution
 - tools must return normalized structured outcomes, not raw backend process objects
 - tools must not write directly to session history; they report through runtime orchestration
+- MCP-discovered tools may be adapted into this contract, but MCP transport and discovery are not specified here
 
 ## Tool Execution Lifecycle
 
@@ -210,6 +221,12 @@ The first milestone should define these built-in tools:
 - `write_file` only if explicitly separated from `apply_patch`
 
 The design below makes `shell_command` and `file_search` mandatory because they are core to coding-agent behavior and have strong Codex reference material.
+
+Boundary rules:
+
+- built-in tools are owned and implemented directly in `clawcr-tools`
+- MCP-contributed capabilities are specified in [spec-mcp.md](./spec-mcp.md) and only enter this layer after normalization
+- skills are not tools and must not be modeled as tool definitions in `clawcr-tools`
 
 ## Shell Command Tool
 
@@ -467,5 +484,4 @@ Assumptions:
 
 Open questions:
 
-- whether future MCP tools should be wrapped into the same `Tool` trait or bridged through an adapter layer
 - whether file search should eventually support indexed semantic search in addition to literal search

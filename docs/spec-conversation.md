@@ -30,13 +30,6 @@ Out of scope:
 - Provider-specific request shaping.
 - UI rendering and transport framing.
 
-## Reference Rationale
-
-The overview establishes session, turn, and item as the primary hierarchy. The detailed journaling and replay requirements here are strengthened by two implementation lessons from the reference codebases:
-
-- Claude Code keeps enough history structure to replay tool interactions and compaction boundaries meaningfully.
-- Codex rollout shows that append-only session persistence works best as a single rollout stream with an initial metadata line, while fast listing and lookup can be handled by secondary indexes rather than splitting the primary source of truth across multiple files.
-
 ## Design Constraints
 
 The conversation model must preserve:
@@ -67,7 +60,7 @@ The conversation model must preserve:
 
 `clawcr-core::context` may read items but must not mutate raw persisted history.
 
-## Core Data Structures
+## Data Structures
 
 ### Identifiers
 
@@ -80,46 +73,75 @@ pub struct ItemId(Uuid);
 Requirements:
 
 - `SessionId`, `TurnId`, and `ItemId` use UUID v7.
-- Newtypes implement `Display`, `Serialize`, `Deserialize`, `Copy` only when cheap and safe.
+- Newtypes implement `Debug, Clone, Copy, PartialEq, Eq, TS, Hash` only when cheap and safe.
 - IDs are generated only by core runtime factories, not by UI adapters.
+- Should have `TryFrom<&str>`, `TryFrom<String>`, `Deserialize<'de>`, `Serialize`, `JsonSchema`, so many implementation, should extract 
+  reusable internal Id structure.
 
 ### Session Metadata
 
 ```rust
-pub struct SessionRecord {
-    pub id: SessionId,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
-    pub cwd: PathBuf,
-    pub title: Option<String>,
-    pub title_state: SessionTitleState,
-    pub source: SessionSource,
-    pub ephemeral: bool,
-    pub parent_session_id: Option<SessionId>,
-    pub schema_version: u32,
-}
-```
-
-```rust
 pub enum SessionTitleState {
     Unset,
-    Provisional {
-        strategy: ProvisionalTitleStrategy,
-        generated_at: DateTime<Utc>,
-    },
-    Final {
-        source: FinalTitleSource,
-        generated_at: DateTime<Utc>,
-    },
+    Provisional,
+    Final(SessionTitleFinalSource),
 }
 
-pub enum ProvisionalTitleStrategy {
-    FirstUserMessageDerive,
-}
-
-pub enum FinalTitleSource {
-    ExplicitUserRename,
+pub enum SessionTitleFinalSource {
     ModelGenerated,
+    UserRename,
+    ExplicitCreate,
+}
+
+pub struct SessionRecord {
+    /// The session identifier.
+    pub id: SessionId,
+    /// The absolute rollout path on disk.
+    pub rollout_path: PathBuf,
+    /// The creation timestamp.
+    pub created_at: DateTime<Utc>,
+    /// The last update timestamp.
+    pub updated_at: DateTime<Utc>,
+    /// The session source (stringified enum).
+    pub source: String,
+    /// Optional random unique nickname assigned to an AgentControl-spawned sub-agent.
+    pub agent_nickname: Option<String>,
+    /// Optional role (agent_role) assigned to an AgentControl-spawned sub-agent.
+    pub agent_role: Option<String>,
+    /// Optional canonical agent path assigned to an AgentControl-spawned sub-agent.
+    pub agent_path: Option<String>,
+    /// The model provider identifier.
+    pub model_provider: String,
+    /// The latest observed model for the session.
+    pub model: Option<String>,
+    /// The latest observed reasoning effort for the session.
+    pub reasoning_effort: Option<ReasoningEffort>,
+    /// The working directory for the session.
+    pub cwd: PathBuf,
+    /// Version of the CLI that created the session.
+    pub cli_version: String,
+    /// The current best-effort session title, if any.
+    pub title: Option<String>,
+    /// The current title lifecycle state.
+    pub title_state: SessionTitleState,
+    /// The parent session when this session was forked, if any.
+    pub parent_session_id: Option<SessionId>,
+    /// The sandbox policy (stringified enum).
+    pub sandbox_policy: String,
+    /// The approval mode (stringified enum).
+    pub approval_mode: String,
+    /// The last observed token usage.
+    pub tokens_used: i64,
+    /// First user message observed for this session, if any.
+    pub first_user_message: Option<String>,
+    /// The archive timestamp, if the session is archived.
+    pub archived_at: Option<DateTime<Utc>>,
+    /// The git commit SHA, if known.
+    pub git_sha: Option<String>,
+    /// The git branch name, if known.
+    pub git_branch: Option<String>,
+    /// The git origin URL, if known.
+    pub git_origin_url: Option<String>,
 }
 ```
 
@@ -151,17 +173,21 @@ pub struct TurnRecord {
 ### Item Model
 
 ```rust
-pub enum ItemKind {
-    UserMessage,
-    AssistantMessage,
-    ReasoningSummary,
-    ToolCall,
-    ToolResult,
-    ToolProgress,
-    ApprovalRequest,
-    ApprovalDecision,
-    ContextSummary,
-    SystemNotice,
+pub enum TurnItem {
+    UserMessage(UserMessageItem),
+    SteerInput(SteerInputItem),
+    HookPrompt(HookPromptItem),
+    AgentMessage(AgentMessageItem),
+    Plan(PlanItem),
+    Reasoning(ReasoningItem),
+    ToolCall(ToolCallItem),
+    ToolProgress(ToolProgressItem),
+    ToolResult(ToolResultItem),
+    ApprovalRequest(ApprovalRequestItem),
+    ApprovalDecision(ApprovalDecisionItem),
+    WebSearch(WebSearchItem),
+    ImageGeneration(ImageGenerationItem),
+    ContextCompaction(ContextCompactionItem),
 }
 
 pub struct ItemRecord {
@@ -170,15 +196,18 @@ pub struct ItemRecord {
     pub turn_id: TurnId,
     pub seq: u64,
     pub timestamp: DateTime<Utc>,
-    pub kind: ItemKind,
-    pub payload: ItemPayload,
+    pub attempt_placement: Option<i64>,
+    pub turn_status: Option<TurnStatus>,
+    pub sibling_turn_ids: Vec<TurnId>,
+    pub input_items: Vec<TurnItem>,
+    pub output_items: Vec<TurnItem>,
+    pub worklog: Option<Worklog>,
+    pub error: Option<TurnError>,
     pub schema_version: u32,
 }
 ```
 
-`ItemPayload` must be an exhaustive enum, not free-form JSON, with `serde(tag = "type")`.
-
-### Rollout Line Model
+### Rollout Line
 
 Primary persisted history must be written as a single append-only rollout stream.
 
@@ -226,7 +255,9 @@ pub struct SessionTitleUpdatedLine {
 
 ## Persistence Layout
 
-The overview requires JSONL partitioned by date and session ID. The primary persistence model should follow the Codex rollout pattern: one append-only rollout file per session, plus optional secondary indexes for listing and repair.
+The overview requires JSONL partitioned by date and session ID. The primary persistence model should follow the Codex rollout pattern: one append-only rollout file per session, plus derived metadata indexes for listing and repair.
+
+The conversation subsystem must also maintain a required SQLite `state` database for session metadata, listing, search acceleration, and metadata repair support. The state database is not the canonical history source, but it is the canonical metadata index.
 
 Required filesystem layout:
 
@@ -238,7 +269,7 @@ Required filesystem layout:
         rollout-2026-04-05T12-30-45-<session_id>.jsonl
 <data_root>/session_index.jsonl
 <data_root>/state/
-  state.sqlite
+  clawcr.sqlite
 ```
 
 Rules:
@@ -250,66 +281,52 @@ Rules:
 - date partition is derived from session creation timestamp
 - filename must embed both creation timestamp and session id
 - forked sessions create their own rollout file and record `parent_session_id`
-- `session_index.jsonl` is optional but recommended as an append-only name lookup index
-- SQLite or other structured state stores are optional accelerators for listing, search, and metadata repair; they are not the canonical history source
+- `session_index.jsonl` is optional and may remain as an append-only supplemental index
+- `clawcr.sqlite` is the required structured metadata store for session listing, filtering, search acceleration, and metadata repair workflows
+- the rollout `.jsonl` file remains the canonical recoverable history source; `clawcr.sqlite` is derived metadata
 
 ### Primary Rollout File Rules
 
 - writes are append-only
 - every line is standalone JSON
-- each line carries its own timestamp
 - partial trailing lines may be ignored or rejected on resume, but earlier valid lines remain authoritative
 - persistence may flush after every append for durability
 
-### Secondary Index Rules
+### State Database Contract
 
-Optional secondary indexes may store:
+The `state` database is required for efficient cross-session metadata queries.
 
-- latest session title or thread name
-- title state
-- created and updated timestamps
-- cwd
-- git metadata
-- archived state
-- model provider summary fields
-- first user message preview
+Minimum tables:
+
+```sql
+CREATE TABLE sessions (
+  session_id TEXT PRIMARY KEY,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  cwd TEXT NOT NULL,
+  title TEXT,
+  title_state_json TEXT NOT NULL,
+  source_kind TEXT NOT NULL,
+  ephemeral INTEGER NOT NULL,
+  parent_session_id TEXT,
+  archived INTEGER NOT NULL DEFAULT 0,
+  latest_turn_id TEXT,
+  latest_turn_status TEXT,
+  latest_model_slug TEXT,
+  first_user_message_preview TEXT,
+  rollout_path TEXT NOT NULL,
+  schema_version INTEGER NOT NULL
+);
+```
 
 Rules:
 
-- secondary indexes must be derivable from the rollout file
-- missing or stale secondary indexes must be repairable by rescanning rollout files
-- resume must not depend on secondary indexes
-
-## Repository Interfaces
-
-```rust
-#[async_trait]
-pub trait SessionRepository {
-    async fn create_session(&self, record: &SessionRecord) -> Result<(), SessionRepoError>;
-    async fn append_turn(&self, record: &TurnRecord) -> Result<(), SessionRepoError>;
-    async fn append_item(&self, item: &ItemRecord) -> Result<(), SessionRepoError>;
-    async fn update_session_title(
-        &self,
-        session_id: SessionId,
-        title: &str,
-        title_state: SessionTitleState,
-    ) -> Result<(), SessionRepoError>;
-    async fn load_session(&self, id: SessionId) -> Result<LoadedSession, SessionRepoError>;
-    async fn fork_session(
-        &self,
-        source_session_id: SessionId,
-        new_record: &SessionRecord,
-    ) -> Result<LoadedSession, SessionRepoError>;
-}
-```
-
-`LoadedSession` must include:
-
-- `SessionRecord`
-- ordered `Vec<TurnRecord>`
-- ordered `Vec<ItemRecord>`
-- latest summary snapshot references
-- rollout path
+- `sessions` stores derived metadata only, never the full canonical turn or item history
+- `title_state_json` stores the normalized `SessionTitleState` projection used for listing and fast metadata reads
+- `rollout_path` points to the canonical rollout file
+- `clawcr.sqlite` schema migrations must be versioned independently from rollout schema versioning
+- if `clawcr.sqlite` is missing or corrupt, it must be rebuildable by rescanning rollout files
+- session resume must still trust rollout data over any conflicting state-database metadata
 
 ## Lifecycle and State Transitions
 
@@ -318,20 +335,20 @@ Session lifecycle:
 1. `Created`
 2. `Active`
 3. `Archived`
-4. `Deleted` is out of scope and should not be implemented until retention policy exists
 
 Session title lifecycle:
 
 1. `Unset` when the session is created without an explicit title
 2. `Provisional` after the first successful assistant reply if deterministic derivation succeeds
 3. `Final(ModelGenerated)` after an asynchronous title-generation upgrade succeeds
-4. `Final(ExplicitUserRename)` whenever the user or API explicitly sets a title
+4. `Final(UserRename)` whenever the user or API explicitly sets a title
+5. `Final(ExplicitCreate)` when the session starts with a caller-supplied title
 
 Title transition rules:
 
 - explicit title creation or rename always wins and must never be auto-overwritten
 - a provisional title may be replaced by one model-generated final title
-- once `Final(ExplicitUserRename)` is set, queued automatic title jobs must be canceled or ignored
+- once `Final(UserRename)` is set, queued automatic title jobs must be canceled or ignored
 - automatic title generation must not run before the first assistant reply completes successfully
 - session title and first-message preview are separate concepts and must remain separate in storage and API surfaces
 
@@ -352,10 +369,10 @@ Transition rules:
 
 ### New Session
 
-1. Generate `SessionId` and `SessionRecord`.
+1. Generate `SessionId`.
 2. Create rollout path from timestamp plus session id.
 3. Append `SessionMetaLine`.
-4. Update optional secondary indexes.
+4. Update `clawcr.sqlite` and any optional supplemental indexes.
 5. Emit session-created event.
 6. Accept first `turn/start`.
 
@@ -363,11 +380,11 @@ Transition rules:
 
 This design combines Claude Code's placeholder-first behavior with Codex's explicit metadata update discipline.
 
-1. Create the session with `title = None` and `title_state = Unset` unless the client supplied an explicit title at create time.
+1. Create the session with `title = None` and `title_state = Unset` unless the client supplied an explicit title at create time, in which case persist that title with `title_state = Final(ExplicitCreate)`.
 2. Persist the first user item as normal and execute the first turn.
 3. When the first assistant reply reaches `Completed`, check whether the session already has an explicit title.
 4. If not, attempt deterministic provisional derivation from the first user message.
-5. If derivation succeeds, append `SessionTitleUpdatedLine`, update secondary indexes, and emit a title-updated event.
+5. If derivation succeeds, append `SessionTitleUpdatedLine`, update `clawcr.sqlite` and any optional supplemental indexes, and emit a title-updated event.
 6. If config enables asynchronous finalization, queue a background title-generation job using the first completed exchange as input context.
 7. When the background job returns a valid title, re-check the current title state.
 8. If the title is still `Unset` or `Provisional`, append a second `SessionTitleUpdatedLine` with `Final(ModelGenerated)`.
@@ -425,7 +442,7 @@ Rules:
 ### Fork Session
 
 1. Load source session.
-2. Materialize a new `SessionRecord` with `parent_session_id = source.id`.
+2. Materialize a new `SessionRecord` with `parent_session_id = Some(source.id)`.
 3. Create a new rollout file for the forked session.
 4. Append a new `SessionMetaLine` for the forked session.
 5. Replay copied raw history into the new rollout stream or persist an explicit fork baseline record.
@@ -436,7 +453,9 @@ Rules:
 - Item `seq` is strictly increasing within a session.
 - Turn `sequence` is strictly increasing within a session.
 - `ItemRecord.turn_id` must reference an existing turn.
+- `ItemRecord.session_id` must reference the enclosing session.
 - Every `ToolResult` must reference a prior `ToolCall`.
+- Every `ApprovalDecision` must reference a prior `ApprovalRequest`.
 - Compaction summaries cannot replace raw history; they only affect prompt materialization.
 - the effective session title is the latest valid `SessionTitleUpdatedLine` if one exists; otherwise it falls back to `SessionMetaLine.session.title`
 - session title and session preview must never be conflated in persistence or API responses
@@ -452,19 +471,6 @@ Conversation-related config fields:
 - `max_items_per_turn: u32`
 - `enable_session_index: bool`
 - `enable_state_db: bool`
-
-```rust
-pub struct SessionTitleConfig {
-    pub mode: SessionTitleMode,
-    pub generate_async: bool,
-    pub max_title_chars: u16,
-}
-
-pub enum SessionTitleMode {
-    ExplicitOnly,
-    DeriveThenGenerate,
-}
-```
 
 ## Error Handling Strategy
 
@@ -482,7 +488,8 @@ Behavior:
 - Corrupt rollout files fail session resume with a hard error once the canonical header or invariant-critical lines are unreadable.
 - A failed item append aborts the current turn.
 - Buffered writes are allowed only if the process still flushes before sending a terminal turn event.
-- Secondary index write failure must not invalidate canonical rollout persistence, but it must surface as a warning and schedule repair.
+- State-database write failure must not invalidate canonical rollout persistence, but it must surface as a warning and schedule repair.
+- Optional supplemental index write failure must not invalidate canonical rollout persistence, but it must surface as a warning and schedule repair.
 - Failed automatic title writes must not invalidate the session or turn; they surface as metadata warnings and may be retried only while no explicit title exists
 
 ## Concurrency and Async Model
@@ -490,7 +497,8 @@ Behavior:
 - One session writer task owns append order.
 - Read operations may run concurrently with prompt construction if they use immutable loaded state.
 - Resume and fork operations lock the target session but not unrelated sessions.
-- Secondary index reconciliation may run asynchronously after canonical rollout append succeeds.
+- state-database reconciliation may run asynchronously after canonical rollout append succeeds.
+- optional supplemental index reconciliation may run asynchronously after canonical rollout append succeeds.
 - automatic title generation may run on a background task, but title persistence must still be serialized through the session writer
 
 ## Observability
@@ -506,6 +514,8 @@ Required logs and metrics:
 - `conversation.resume.duration_ms`
 - `conversation.fork.duration_ms`
 - `conversation.index.repair.count`
+- `conversation.state.repair.count`
+- `conversation.state.write.failure.count`
 
 ## Security and Edge Cases
 
@@ -524,11 +534,13 @@ Required tests:
 - Fork preserves parent history without reusing IDs.
 - Tool call/result pair validation.
 - Corrupt trailing JSONL line handling.
-- secondary index rebuild from rollout file
+- state-database rebuild from rollout files
+- optional supplemental index rebuild from rollout file
 - provisional title derivation from a natural-language first user message
 - explicit rename blocks asynchronous automatic overwrite
 - resume reconstructs latest title state from title-update lines
 - listing preview remains distinct from canonical session title
+- state-database listing reflects title updates, archive status, and latest-turn metadata
 
 Acceptance criteria:
 
@@ -547,10 +559,10 @@ Acceptance criteria:
 
 Assumptions:
 
-- rollout JSONL is the only required canonical persistence artifact; indexes and state DBs are accelerators.
+- rollout JSONL is the only canonical recoverable history artifact
+- `clawcr.sqlite` is the required metadata index, but it remains derivable from rollout files
 - the first milestone requires at most one automatic model-generated title upgrade per session
 
 Open questions:
 
-- Whether session metadata should also be mirrored into a global index for faster listing.
 - Whether reasoning raw content should be persisted as encrypted blobs or omitted entirely.

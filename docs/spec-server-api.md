@@ -215,7 +215,7 @@ Request fields:
 Response fields:
 
 - `turnId`
-- `status = interrupted`
+- `status = interrupted` using the same wire/status vocabulary as `TurnStatus`
 
 ### `turn/steer`
 
@@ -384,12 +384,17 @@ Required turn notifications:
 `turn/started`:
 
 - payload includes `turn`
-- `turn.status` is `inProgress`
+- `turn.status` is `running`
 
 `turn/completed`:
 
 - payload includes final `turn`
 - terminal status is `completed`, `interrupted`, or `failed`
+
+Wire status contract:
+
+- API payloads must reuse the canonical `TurnStatus` vocabulary from the conversation model
+- the server must not introduce alternate spellings such as `inProgress` for the same state
 
 Rules:
 

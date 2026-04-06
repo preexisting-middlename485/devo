@@ -1,17 +1,19 @@
 # ClawCodeRust Design
-This document defines the data model for an SWE coding agent named clawcr, it is Claude Code / Codex Inspired. The documentation's goal is to guide implementation.
+This document defines the specification for an SWE coding agent named clawcr, it is Claude Code / Codex Inspired. The documentation's goal is to guide implementation.
 
 ## 1. Overview
 Detailed specification: [Architecture Overview](./spec-overview-architecture.md)
 
 The target crate split is:
 
-- `clawcr-core`: conversation, model integration, context management, and shared runtime state
-- `clawcr-code`: coding workflow orchestration and long-running task execution
+- `clawcr-core`: conversation, model integration, context management, coding workflow orchestration, long-running task execution, and shared runtime state
 - `clawcr-tools`: built-in tool contracts and tool execution adapters
 - `clawcr-safety`: sandboxing, redaction, approvals, and safety policy
+- `clawcr-mcp`: MCP server lifecycle, discovery, and capability bridging
 - `clawcr-server`: transport-neutral runtime API server
 - `clawcr-utils`: shared low-level utilities that are broadly reusable and not owned by a higher-level domain crate
+
+All crates must implement observability. At minimum, each crate must emit structured logs, useful tracing spans for long-running operations, and crate-appropriate metrics. Logging and observability are not optional add-ons; they are part of the baseline implementation contract.
 
 ### 1.1 Conversation
 The agent is organized into three hierarchical levels:
@@ -93,7 +95,7 @@ Use pattern-based or rule-based filtering (e.g., regex, key detection), Apply de
 
 Detailed specification: [Safety](./spec-safety.md)
 
-### Execution Flow with Safety
+**Execution Flow with Safety**
 The agent follows a controlled loop:
 
 1. User input arrives
@@ -122,8 +124,6 @@ The agent follows a controlled loop:
    - remove sensitive data
 8. Construct new context
 9. Model continues reasoning
-
-Detailed specification: [Safety Execution Flow](./spec-safety-execution-flow.md)
 
 ## 1.4 Context Management
 Context Management refers to the set of mechanisms that allow the agent to operate continuously over long-running, multi-turn tasks despite the finite context window of the language model.
@@ -208,7 +208,32 @@ Tool execution must follow a stable lifecycle:
 
 Detailed specification: [Tools](./spec-tools.md)
 
-## 1.6 Server API
+## 1.6 MCP
+MCP support allows `clawcr` to connect to external capability providers that expose tools, resources, and resource templates through the Model Context Protocol.
+
+The MCP subsystem must support:
+
+- configured server startup and refresh
+- MCP tool discovery and exposure
+- MCP resource and resource-template discovery
+- auth and startup status reporting
+- elicitation and approval integration when MCP servers need client interaction
+
+Detailed specification: [MCP](./spec-mcp.md)
+
+## 1.7 Skills
+Skills are reusable instruction bundles that can be discovered from disk, listed to clients, and injected into turns as structured context.
+
+The skills subsystem must support:
+
+- skill discovery from user and workspace roots
+- stable metadata listing
+- change detection and cache invalidation
+- explicit structured skill references in turn input
+
+Detailed specification: [Skills](./spec-skills.md)
+
+## 1.8 Server API
 The agent runtime exposes a server API designed for integration with various user interfaces such as CLI tools, desktop applications, and IDE extensions. The API supports two transport: stdio (for local, process-based communication) and WebSocket (for networked or remote clients), follows a JSON-RPC 2.0 protocol (with the `"jsonrpc":"2.0"` header omitted on the wire). for structured request-response interactions. In addition to standard method calls for driving agent behavior (e.g., submitting user input, controlling execution), the API provides an event subscription mechanism, allowing clients to receive real-time updates such as streaming model outputs, tool execution progress, approval requests, and state changes.
 
 - stdio (`--listen stdio://`, default): newline-delimited JSON (JSONL)
@@ -227,7 +252,7 @@ For enabling real-time streaming and fine-grained observability of agent behavio
 
 Detailed specification: [Server API](./spec-server-api.md)
 
-## 1.7 App Config
+## 1.9 App Config
 The agent requires an application-level configuration layer separate from the model catalog. App config defines cross-cutting runtime defaults such as default model selection, summary-model selection, safety defaults, server defaults, and logging behavior. User-level config and project-level config are merged into one normalized runtime config before session execution begins.
 
 Summary generation must use an explicit configuration setting rather than an implicit architecture choice. The runtime must support both:
@@ -237,18 +262,46 @@ Summary generation must use an explicit configuration setting rather than an imp
 
 Detailed specification: [App Config](./spec-app-config.md)
 
-## 2. Detail
-Detailed specification: [Detail Index and Rollout](./spec-detail-index.md)
+## 1.10 Observability
+Observability is a cross-cutting requirement for the whole system.
 
-### Detailed Specifications
+Every crate must contribute:
+
+- structured logs
+- tracing spans around important async or long-running work
+- metrics for success, failure, latency, and high-value counters
+
+Observability must cover at least:
+
+- session and turn lifecycle
+- model calls and retries
+- tool execution and truncation
+- approval requests and decisions
+- sandbox selection and failures
+- context compaction and snapshotting
+- API request handling and event delivery
+- config loading and validation
+
+Rules:
+
+- logs must be structured and machine-parseable
+- secrets must never be written to logs, traces, or metrics labels
+- correlation identifiers such as `session_id`, `turn_id`, `item_id`, and request ids should be attached whenever applicable
+- failures must produce actionable diagnostics rather than generic error text
+
+Detailed specification: [Architecture Overview](./spec-overview-architecture.md)
+
+## 2. Detailed Specifications
+The detailed specifications below are the implementation-facing source of truth for the design:
 
 - [Architecture Overview](./spec-overview-architecture.md)
 - [Conversation](./spec-conversation.md)
 - [Language Model](./spec-language-model.md)
 - [Safety](./spec-safety.md)
-- [Safety Execution Flow](./spec-safety-execution-flow.md)
 - [Context Management](./spec-context-management.md)
 - [Tools](./spec-tools.md)
+- [MCP](./spec-mcp.md)
+- [Skills](./spec-skills.md)
 - [Server API](./spec-server-api.md)
 - [App Config](./spec-app-config.md)
-- [Detail Index and Rollout](./spec-detail-index.md)
+- [Observability via Architecture Overview](./spec-overview-architecture.md)

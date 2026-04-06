@@ -1,4 +1,4 @@
-# ClawCodeRust Detailed Specification: Language Model
+# Language Model
 
 ## Background and Goals
 
@@ -314,6 +314,5 @@ Assumptions:
 - `model_messages` is provider-neutral and interpreted by prompt assembly, not by provider adapters directly.
 
 Open questions:
-
-- Whether optional provider tokenizer plugins should be allowed as advisory diagnostics while keeping the byte-heuristic estimator as the required control path for compaction and preflight fitting.
+.
 - Whether `upgrade` should be only advisory metadata or an automatic fallback hint.

@@ -283,13 +283,11 @@ fn composer_height(app: &TuiApp, area: Rect) -> u16 {
     let inner_width = area.width.saturating_sub(2).max(1);
     let suggestion_height = app.slash_suggestions().len() as u16;
     let suggestion_padding = if suggestion_height > 0 { 1 } else { 0 };
-    let body_height = app
-        .input
+    app.input
         .visual_line_count(inner_width)
         .saturating_add(suggestion_height)
         .saturating_add(suggestion_padding)
-        .clamp(1, 8);
-    body_height
+        .clamp(1, 8)
 }
 
 fn composer_cursor(app: &TuiApp, area: Rect) -> (u16, u16) {

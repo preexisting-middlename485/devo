@@ -133,13 +133,11 @@ impl InputBuffer {
     /// Returns the number of visual lines needed to render the composer.
     pub(crate) fn visual_line_count(&self, inner_width: u16) -> u16 {
         let (_, y) = self.visual_cursor(inner_width);
-        let current_line = self
-            .text
-            .chars()
-            .last()
-            .is_some_and(|last| last == '\n')
-            .then_some(1)
-            .unwrap_or(0);
+        let current_line = if self.text.chars().last().is_some_and(|last| last == '\n') {
+            1
+        } else {
+            0
+        };
         y.saturating_add(1 + current_line)
     }
 

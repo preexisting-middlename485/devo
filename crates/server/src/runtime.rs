@@ -148,7 +148,7 @@ impl ServerRuntime {
         id: Option<serde_json::Value>,
         params: serde_json::Value,
     ) -> serde_json::Value {
-        let request_id = id.unwrap_or_else(|| serde_json::json!(null));
+        let request_id = id.unwrap_or(serde_json::Value::Null);
         match serde_json::from_value::<InitializeParams>(params) {
             Ok(params) => {
                 if let Some(connection) = self.connections.lock().await.get_mut(&connection_id) {
@@ -1132,14 +1132,13 @@ impl ServerEvent {
 fn render_input_items(input: &[crate::InputItem]) -> Option<String> {
     let parts = input
         .iter()
-        .filter_map(|item| match item {
-            crate::InputItem::Text { text } => Some(text.trim().to_string()),
-            crate::InputItem::Skill { id } => Some(format!("[skill:{id}]")),
-            crate::InputItem::LocalImage { path } => Some(format!("[image:{}]", path.display())),
-            crate::InputItem::Mention { path, name } => Some(format!(
-                "[mention:{}]",
-                name.as_deref().unwrap_or(path.as_str())
-            )),
+        .map(|item| match item {
+            crate::InputItem::Text { text } => text.trim().to_string(),
+            crate::InputItem::Skill { id } => format!("[skill:{id}]"),
+            crate::InputItem::LocalImage { path } => format!("[image:{}]", path.display()),
+            crate::InputItem::Mention { path, name } => {
+                format!("[mention:{}]", name.as_deref().unwrap_or(path.as_str()))
+            }
         })
         .filter(|text| !text.is_empty())
         .collect::<Vec<_>>();

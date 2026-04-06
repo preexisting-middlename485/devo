@@ -357,7 +357,7 @@ impl TuiApp {
             WorkerEvent::ToolResult {
                 preview,
                 is_error,
-                truncated,
+                truncated: _,
             } => {
                 let kind = if is_error {
                     TranscriptItemKind::Error
@@ -369,7 +369,7 @@ impl TuiApp {
                 } else {
                     "Tool output"
                 };
-                let body = if truncated { preview } else { preview };
+                let body = preview;
                 self.push_item(kind, title, body);
                 self.status_message = if is_error {
                     "Tool returned an error".to_string()

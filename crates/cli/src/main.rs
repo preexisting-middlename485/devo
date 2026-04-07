@@ -4,7 +4,6 @@ use clawcr_server::{run_server_process, ServerProcessArgs};
 
 mod agent;
 mod config;
-mod onboarding;
 
 use agent::{run_agent, AgentCli};
 

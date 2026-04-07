@@ -476,6 +476,7 @@ dependencies = [
  "chrono",
  "clawcr-core",
  "clawcr-server",
+ "clawcr-utils",
  "crossterm",
  "futures",
  "pretty_assertions",
@@ -484,6 +485,7 @@ dependencies = [
  "textwrap",
  "tokio",
  "tokio-stream",
+ "toml",
  "tracing",
  "unicode-width 0.2.0",
 ]

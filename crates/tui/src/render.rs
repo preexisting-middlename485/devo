@@ -81,6 +81,13 @@ fn render_transcript(app: &TuiApp, area: Rect) -> Paragraph<'static> {
 
 fn render_composer(app: &TuiApp, inner_width: u16) -> Paragraph<'_> {
     let mut lines = Vec::new();
+    if let Some(prompt) = app.onboarding_prompt.as_deref() {
+        lines.push(Line::from(vec![
+            Span::styled(format!("{prompt}>"), Style::new().cyan().add_modifier(Modifier::BOLD)),
+        ]));
+        lines.push(Line::from(""));
+    }
+
     let rendered_input = app.input.rendered_lines(inner_width);
 
     if app.input.text().is_empty() {
@@ -227,7 +234,10 @@ fn render_composer(app: &TuiApp, inner_width: u16) -> Paragraph<'_> {
                         .filter(|description| !description.trim().is_empty())
                         .unwrap_or(label);
                     let row = if app.show_model_onboarding {
-                        format!("  {marker} {}  [{}]  {}", entry.display_name, entry.slug, description)
+                        format!(
+                            "  {marker} {}  [{}]  {}",
+                            entry.display_name, entry.slug, description
+                        )
                     } else {
                         format!(
                             "  {} {marker} {}  [{}]  {}",
@@ -237,7 +247,13 @@ fn render_composer(app: &TuiApp, inner_width: u16) -> Paragraph<'_> {
                             description
                         )
                     };
-                    append_wrapped_composer_session_entry(&mut lines, &row, inner_width, style, title_style);
+                    append_wrapped_composer_session_entry(
+                        &mut lines,
+                        &row,
+                        inner_width,
+                        style,
+                        title_style,
+                    );
                 }
             }
         }
@@ -603,6 +619,9 @@ fn append_wrapped_composer_session_entry(
 pub(crate) fn composer_height(app: &TuiApp, area: Rect) -> u16 {
     let inner_width = area.width.max(1);
     let mut total = app.input.visual_line_count(inner_width);
+    if app.onboarding_prompt.is_some() {
+        total = total.saturating_add(2);
+    }
 
     let suggestions = app.slash_suggestions();
     if !suggestions.is_empty() {
@@ -684,7 +703,10 @@ pub(crate) fn composer_height(app: &TuiApp, area: Rect) -> u16 {
                             entry.provider.as_str()
                         });
                     let rendered = if app.show_model_onboarding {
-                        format!("  {marker} {}  [{}]  {}", entry.display_name, entry.slug, description)
+                        format!(
+                            "  {marker} {}  [{}]  {}",
+                            entry.display_name, entry.slug, description
+                        )
                     } else {
                         format!(
                             "  {} {marker} {}  [{}]  {}",
@@ -715,8 +737,9 @@ pub(crate) fn composer_height(app: &TuiApp, area: Rect) -> u16 {
 
 fn composer_cursor(app: &TuiApp, area: Rect) -> (u16, u16) {
     let (cursor_x, cursor_y) = app.input.visual_cursor(area.width);
+    let y_offset = u16::from(app.onboarding_prompt.is_some()) * 2;
     (
         area.x + cursor_x,
-        area.y + cursor_y.min(area.height.saturating_sub(1)),
+        area.y + cursor_y.saturating_add(y_offset).min(area.height.saturating_sub(1)),
     )
 }

@@ -67,7 +67,7 @@ impl FileSystemConfigPathResolver {
 
     /// Returns the canonical user-level config directory path.
     pub fn user_config_dir(&self) -> PathBuf {
-        self.user_home.join(APP_CONFIG_DIR_NAME)
+        self.user_home.clone()
     }
 
     /// Returns the canonical user-level config file path.
@@ -111,10 +111,10 @@ mod tests {
             .resolve_paths(Some(PathBuf::from("/repo").as_path()))
             .expect("paths");
 
-        assert_eq!(paths.user_config_dir, PathBuf::from("/home/tester/.clawcr"));
+        assert_eq!(paths.user_config_dir, PathBuf::from("/home/tester"));
         assert_eq!(
             paths.user_config_file,
-            PathBuf::from("/home/tester/.clawcr/config.toml")
+            PathBuf::from("/home/tester/config.toml")
         );
         assert_eq!(
             paths.project_config_dir,
@@ -135,7 +135,7 @@ mod tests {
         assert!(paths.project_config_file.is_none());
         assert_eq!(
             paths.user_config_file,
-            PathBuf::from("C:\\Users\\tester\\.clawcr\\config.toml")
+            PathBuf::from("C:\\Users\\tester\\config.toml")
         );
     }
 

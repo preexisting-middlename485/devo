@@ -11,6 +11,7 @@ use ratatui::layout::{Constraint, Layout, Rect};
 
 use crate::{
     events::{ModelListEntry, SessionListEntry, TranscriptItem, TranscriptItemKind, WorkerEvent},
+    onboarding_config::save_onboarding_config,
     input::InputBuffer,
     paste_burst::PasteBurst,
     render,
@@ -98,6 +99,20 @@ pub(crate) struct TuiApp {
     onboarding_announced: bool,
     /// Whether the onboarding flow is waiting for a manually typed custom model.
     onboarding_custom_model_pending: bool,
+    /// Prompt shown while onboarding is collecting connection details.
+    pub(crate) onboarding_prompt: Option<String>,
+    /// Completed onboarding prompt lines preserved in the transcript area.
+    pub(crate) onboarding_prompt_history: Vec<String>,
+    /// Whether the onboarding flow is waiting for a base URL input.
+    onboarding_base_url_pending: bool,
+    /// Whether the onboarding flow is waiting for an API key input.
+    onboarding_api_key_pending: bool,
+    /// Model selected during onboarding before credentials are finalized.
+    onboarding_selected_model: Option<String>,
+    /// Base URL entered during onboarding before it is applied.
+    onboarding_selected_base_url: Option<String>,
+    /// API key entered during onboarding before it is applied.
+    onboarding_selected_api_key: Option<String>,
     /// Timestamp of the most recent Ctrl+C press used for interrupt/exit confirmation.
     last_ctrl_c_at: Option<Instant>,
     /// Buffered rapid keypresses that should be applied as one pasted string.
@@ -157,6 +172,13 @@ impl TuiApp {
             show_model_onboarding: config.show_model_onboarding,
             onboarding_announced: false,
             onboarding_custom_model_pending: false,
+            onboarding_prompt: None,
+            onboarding_prompt_history: Vec::new(),
+            onboarding_base_url_pending: false,
+            onboarding_api_key_pending: false,
+            onboarding_selected_model: None,
+            onboarding_selected_base_url: None,
+            onboarding_selected_api_key: None,
             aux_panel_selection: 0,
             last_ctrl_c_at: None,
             paste_burst: PasteBurst::default(),
@@ -165,7 +187,8 @@ impl TuiApp {
 
         if app.show_model_onboarding {
             app.show_model_panel();
-            app.status_message = "Choose a builtin model to start".to_string();
+            app.onboarding_prompt = Some("Choose a builtin model to start".to_string());
+            app.status_message.clear();
         }
 
         if let Some(prompt) = startup_prompt {
@@ -496,24 +519,70 @@ impl TuiApp {
         if self.onboarding_custom_model_pending {
             let model = prompt.trim();
             if model.is_empty() {
-                self.status_message = "Enter a custom model name to continue".to_string();
+                self.onboarding_prompt = Some("model name".to_string());
                 return Ok(());
             }
 
             self.onboarding_custom_model_pending = false;
-            self.set_model(model.to_string())?;
+            self.onboarding_selected_model = Some(model.to_string());
+            self.onboarding_base_url_pending = true;
             self.aux_panel = None;
             self.aux_panel_selection = 0;
-            self.status_message = format!("Custom model set to {model}");
-            if self.show_model_onboarding && !self.onboarding_announced {
+            self.input.clear();
+            self.onboarding_prompt = Some("base url".to_string());
+            self.status_message.clear();
+            return Ok(());
+        }
+
+        if self.onboarding_base_url_pending {
+            let base_url = prompt.trim();
+            self.onboarding_base_url_pending = false;
+            self.onboarding_api_key_pending = true;
+            self.onboarding_selected_base_url = if base_url.is_empty() {
+                None
+            } else {
+                Some(base_url.to_string())
+            };
+            self.onboarding_prompt_history.push(format!(
+                "base url> {}",
+                self.onboarding_selected_base_url
+                    .as_deref()
+                    .unwrap_or("")
+            ));
+            if let Some(model) = self.onboarding_selected_model.clone() {
                 self.push_item(
                     TranscriptItemKind::System,
                     "Onboarding",
-                    "Onboarding complete. Run `clawcr onboard` any time to revisit builtin models.",
+                    format!(
+                        "base url> {}",
+                        self.onboarding_selected_base_url
+                        .as_deref()
+                        .unwrap_or("(empty)")
+                    ),
                 );
-                self.onboarding_announced = true;
-                self.show_model_onboarding = false;
+                self.status_message = format!("Base URL saved for {model}");
             }
+            self.input.clear();
+            self.onboarding_prompt = Some("api key".to_string());
+            return Ok(());
+        }
+
+        if self.onboarding_api_key_pending {
+            self.onboarding_api_key_pending = false;
+            self.onboarding_selected_api_key = if prompt.trim().is_empty() {
+                None
+            } else {
+                Some(prompt.trim().to_string())
+            };
+            self.onboarding_prompt_history.push(format!(
+                "api key> {}",
+                self.onboarding_selected_api_key
+                    .as_deref()
+                    .map(mask_secret)
+                    .unwrap_or_else(String::new)
+            ));
+            self.push_item(TranscriptItemKind::System, "Onboarding", "ok");
+            self.finish_onboarding_selection()?;
             return Ok(());
         }
 
@@ -595,7 +664,7 @@ impl TuiApp {
             });
         }
 
-        if !entries.iter().any(|entry| entry.slug == self.model) {
+        if !self.show_model_onboarding && !entries.iter().any(|entry| entry.slug == self.model) {
             entries.insert(
                 0,
                 ModelListEntry {
@@ -1092,41 +1161,75 @@ impl TuiApp {
                 if models.is_empty() {
                     return false;
                 }
-                let selected = &models[self.aux_panel_selection.min(models.len() - 1)];
+                let selected = models[self.aux_panel_selection.min(models.len() - 1)].clone();
                 if selected.is_custom_mode {
                     self.aux_panel = None;
                     self.aux_panel_selection = 0;
                     self.onboarding_custom_model_pending = true;
-                    self.status_message = "Enter a custom model name and press Enter".to_string();
+                    self.onboarding_base_url_pending = false;
+                    self.onboarding_api_key_pending = false;
+                    self.onboarding_selected_model = None;
+                    self.onboarding_selected_base_url = None;
+                    self.onboarding_selected_api_key = None;
+                    self.onboarding_prompt = Some("model name".to_string());
+                    self.status_message.clear();
                     self.input.clear();
                     return true;
                 }
-                let selected = selected.slug.clone();
-                if let Err(error) = self.set_model(selected.clone()) {
-                    self.push_item(
-                        TranscriptItemKind::Error,
-                        "Model switch failed",
-                        error.to_string(),
-                    );
-                    self.status_message = "Failed to switch model".to_string();
-                } else {
-                    self.aux_panel = None;
-                    self.aux_panel_selection = 0;
-                    self.status_message = format!("Model set to {selected}");
-                    if self.show_model_onboarding && !self.onboarding_announced {
-                        self.push_item(
-                            TranscriptItemKind::System,
-                            "Onboarding",
-                            "Onboarding complete. Run `clawcr onboard` any time to revisit builtin models.",
-                        );
-                        self.onboarding_announced = true;
-                        self.show_model_onboarding = false;
-                    }
-                }
+                let selected_slug = selected.slug.clone();
+                self.aux_panel = None;
+                self.aux_panel_selection = 0;
+                self.onboarding_custom_model_pending = false;
+                self.onboarding_base_url_pending = true;
+                self.onboarding_api_key_pending = false;
+                self.onboarding_selected_model = Some(selected_slug.clone());
+                self.onboarding_selected_base_url = None;
+                self.onboarding_selected_api_key = None;
+                self.onboarding_prompt = Some("base url".to_string());
+                self.status_message.clear();
                 true
             }
             AuxPanelContent::Text(_) => false,
         }
+    }
+
+    fn finish_onboarding_selection(&mut self) -> Result<()> {
+        let Some(model) = self.onboarding_selected_model.take() else {
+            return Ok(());
+        };
+        let base_url = self.onboarding_selected_base_url.take();
+        let api_key = self.onboarding_selected_api_key.take();
+
+        save_onboarding_config(self.provider, &model, base_url.as_deref(), api_key.as_deref())?;
+        self.worker
+            .reconfigure_provider(model.clone(), base_url, api_key)?;
+        self.model = model.clone();
+        self.aux_panel = None;
+        self.aux_panel_selection = 0;
+        self.onboarding_custom_model_pending = false;
+        self.onboarding_prompt = None;
+        self.onboarding_prompt_history.clear();
+        self.onboarding_base_url_pending = false;
+        self.onboarding_api_key_pending = false;
+        self.status_message = format!("Onboarding complete. Model set to {model}");
+        if self.show_model_onboarding && !self.onboarding_announced {
+            self.push_item(
+                TranscriptItemKind::System,
+                "Onboarding",
+                "Onboarding complete. Run `clawcr onboard` any time to revisit builtin models.",
+            );
+            self.onboarding_announced = true;
+            self.show_model_onboarding = false;
+        }
+        Ok(())
+    }
+}
+
+fn mask_secret(value: &str) -> String {
+    if value.is_empty() {
+        "(empty)".to_string()
+    } else {
+        "*".repeat(value.chars().count().min(8))
     }
 }
 
@@ -1176,6 +1279,13 @@ mod tests {
             show_model_onboarding: false,
             onboarding_announced: false,
             onboarding_custom_model_pending: false,
+            onboarding_prompt: None,
+            onboarding_prompt_history: Vec::new(),
+            onboarding_base_url_pending: false,
+            onboarding_api_key_pending: false,
+            onboarding_selected_model: None,
+            onboarding_selected_base_url: None,
+            onboarding_selected_api_key: None,
             aux_panel: None,
             aux_panel_selection: 0,
             last_ctrl_c_at: None,

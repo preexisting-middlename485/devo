@@ -1,8 +1,8 @@
 use serde::Deserialize;
 
 use crate::{
-    InputModality, ModelCatalog, ModelConfig, ModelConfigError, ModelVisibility, ReasoningLevel,
-    ProviderKind, TruncationPolicyConfig,
+    InputModality, ModelCatalog, ModelConfig, ModelConfigError, ModelVisibility, ProviderKind,
+    ReasoningLevel, TruncationPolicyConfig,
 };
 
 /// Filesystem-independent loader for the built-in model catalog bundled with the binary.

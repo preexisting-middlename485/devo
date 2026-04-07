@@ -16,7 +16,6 @@ pub(crate) struct ManagedTerminal {
     terminal: AppTerminal,
 }
 
-
 // TODO(terminal-mode):
 // Current TUI always enters alternate screen + raw mode, which:
 // - clears scrollback

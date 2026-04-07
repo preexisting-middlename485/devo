@@ -19,7 +19,7 @@ use clawcr_core::{
     query, ContentBlock, EventCallback, Message, QueryEvent, Role, SessionConfig, SessionState,
     TokenBudget,
 };
-use clawcr_provider::openai_compat::OpenAICompatProvider;
+use clawcr_provider::openai::OpenAIProvider;
 use clawcr_safety::legacy_permissions::PermissionMode;
 use clawcr_tools::{ToolOrchestrator, ToolRegistry};
 
@@ -29,8 +29,8 @@ const MODEL: &str = "qwen2.5:3b";
 // Generous timeout — Ollama cold-starts can be slow.
 const TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
 
-fn make_provider() -> OpenAICompatProvider {
-    OpenAICompatProvider::new(OLLAMA_BASE)
+fn make_provider() -> OpenAIProvider {
+    OpenAIProvider::new(OLLAMA_BASE)
 }
 
 fn make_e2e_session(prompt: &str) -> SessionState {
@@ -662,7 +662,7 @@ async fn e2e_tool_use_round_trip() {
 #[tokio::test]
 #[ignore = "requires local Ollama"]
 async fn e2e_connection_error_is_provider_error() {
-    let bad_provider = OpenAICompatProvider::new("http://localhost:1/v1");
+    let bad_provider = OpenAIProvider::new("http://localhost:1/v1");
     let registry = Arc::new(ToolRegistry::new());
     let orchestrator = ToolOrchestrator::new(Arc::clone(&registry));
 

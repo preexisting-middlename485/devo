@@ -3,9 +3,7 @@ use std::{fs, path::Path};
 use anyhow::{Context, Result};
 use serde::Deserialize;
 
-use clawcr_provider::{
-    anthropic::AnthropicProvider, openai_compat::OpenAICompatProvider, ModelProvider,
-};
+use clawcr_provider::{anthropic::AnthropicProvider, openai::OpenAIProvider, ModelProvider};
 
 /// Resolved provider bootstrap owned by the server runtime.
 pub struct ResolvedServerProvider {
@@ -81,7 +79,7 @@ pub fn load_server_provider(
         "ollama" => {
             let base_url =
                 ensure_openai_v1(&base_url.unwrap_or_else(|| "http://localhost:11434".to_string()));
-            let mut provider = OpenAICompatProvider::new(base_url);
+            let mut provider = OpenAIProvider::new(base_url);
             if let Some(api_key) = api_key {
                 provider = provider.with_api_key(api_key);
             }
@@ -93,7 +91,7 @@ pub fn load_server_provider(
         "openai" => {
             let base_url =
                 ensure_openai_v1(&base_url.unwrap_or_else(|| "https://api.openai.com".to_string()));
-            let mut provider = OpenAICompatProvider::new(base_url);
+            let mut provider = OpenAIProvider::new(base_url);
             if let Some(api_key) = api_key {
                 provider = provider.with_api_key(api_key);
             }

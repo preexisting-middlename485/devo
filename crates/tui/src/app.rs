@@ -4,13 +4,13 @@ use std::{
 };
 
 use anyhow::Result;
-use clawcr_core::SessionId;
+use clawcr_core::{BuiltinModelCatalog, ModelCatalog, SessionId};
 use crossterm::event::{Event, EventStream, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use futures::StreamExt;
 use ratatui::layout::{Constraint, Layout, Rect};
 
 use crate::{
-    events::{SessionListEntry, TranscriptItem, TranscriptItemKind, WorkerEvent},
+    events::{ModelListEntry, SessionListEntry, TranscriptItem, TranscriptItemKind, WorkerEvent},
     input::InputBuffer,
     paste_burst::PasteBurst,
     render,
@@ -44,8 +44,10 @@ pub(crate) struct AuxPanel {
 pub(crate) enum AuxPanelContent {
     /// Plain informational text for commands like `/model` and `/status`.
     Text(String),
-    /// Selectable session list shown after `/session`.
+    /// Selectable session list shown after `/sessions`.
     SessionList(Vec<SessionListEntry>),
+    /// Selectable model list shown after `/model` or onboarding.
+    ModelList(Vec<ModelListEntry>),
 }
 
 /// In-memory application state for the interactive terminal UI.
@@ -86,6 +88,10 @@ pub(crate) struct TuiApp {
     pending_assistant_index: Option<usize>,
     /// Background query worker owned by the UI.
     worker: QueryWorkerHandle,
+    /// Built-in model catalog used for onboarding and model selection.
+    model_catalog: BuiltinModelCatalog,
+    /// Whether the app should open the model picker on startup.
+    show_model_onboarding: bool,
     /// Timestamp of the most recent Ctrl+C press used for interrupt/exit confirmation.
     last_ctrl_c_at: Option<Instant>,
     /// Buffered rapid keypresses that should be applied as one pasted string.
@@ -104,6 +110,10 @@ pub struct InteractiveTuiConfig {
     pub server_env: Vec<(String, String)>,
     /// Optional prompt submitted immediately after the UI opens.
     pub startup_prompt: Option<String>,
+    /// Built-in model catalog used for onboarding and model selection.
+    pub model_catalog: BuiltinModelCatalog,
+    /// Whether to open the model picker on startup.
+    pub show_model_onboarding: bool,
 }
 
 impl TuiApp {
@@ -134,31 +144,35 @@ impl TuiApp {
             pending_status_index: None,
             pending_assistant_index: None,
             worker,
+            model_catalog: config.model_catalog,
+            show_model_onboarding: config.show_model_onboarding,
             aux_panel_selection: 0,
             last_ctrl_c_at: None,
             paste_burst: PasteBurst::default(),
             should_quit: false,
         };
 
+        if app.show_model_onboarding {
+            app.show_model_panel();
+            app.status_message = "Choose a starting model".to_string();
+        }
+
         if let Some(prompt) = startup_prompt {
             app.submit_prompt(prompt)?;
         }
 
-        // TODO:
-        // Replace the fixed 80ms redraw loop with an event-driven loop.
-        // - separate tick rate from render rate
-        // - redraw only on input/worker/resize/render events or when state is dirty
-        // - keep tick only for spinner / paste-burst flushing / timed UX updates
-        // - make this compatible with future non-alt-screen mode
-
         let mut terminal = ManagedTerminal::new()?;
         let mut event_stream = EventStream::new();
         let mut tick = tokio::time::interval(Duration::from_millis(80));
+        let mut needs_redraw = true;
 
         loop {
-            terminal
-                .terminal_mut()
-                .draw(|frame| render::draw(frame, &app))?;
+            if needs_redraw {
+                terminal
+                    .terminal_mut()
+                    .draw(|frame| render::draw(frame, &app))?;
+                needs_redraw = false;
+            }
 
             if app.should_quit {
                 break;
@@ -167,7 +181,10 @@ impl TuiApp {
             tokio::select! {
                 maybe_event = event_stream.next() => {
                     match maybe_event {
-                        Some(Ok(event)) => app.handle_terminal_event(event, terminal.area())?,
+                        Some(Ok(event)) => {
+                            app.handle_terminal_event(event, terminal.area())?;
+                            needs_redraw = true;
+                        }
                         Some(Err(error)) => {
                             app.push_item(
                                 TranscriptItemKind::Error,
@@ -175,13 +192,17 @@ impl TuiApp {
                                 error.to_string(),
                             );
                             app.status_message = "Terminal input error".to_string();
+                            needs_redraw = true;
                         }
                         None => break,
                     }
                 }
                 maybe_event = app.worker.event_rx.recv() => {
                     match maybe_event {
-                        Some(event) => app.handle_worker_event(event),
+                        Some(event) => {
+                            app.handle_worker_event(event);
+                            needs_redraw = true;
+                        }
                         None => {
                             app.status_message = "Background worker stopped".to_string();
                             break;
@@ -189,8 +210,17 @@ impl TuiApp {
                     }
                 }
                 _ = tick.tick() => {
-                    app.spinner_index = app.spinner_index.wrapping_add(1);
-                    app.flush_pending_paste_burst(false);
+                    let mut redraw = false;
+                    if app.busy {
+                        app.spinner_index = app.spinner_index.wrapping_add(1);
+                        redraw = true;
+                    }
+                    if app.flush_pending_paste_burst(false) {
+                        redraw = true;
+                    }
+                    if redraw {
+                        needs_redraw = true;
+                    }
                 }
             }
         }
@@ -347,7 +377,7 @@ impl TuiApp {
                 self.follow_output = true;
             }
             KeyCode::Up => {
-                if self.has_session_picker() {
+                if self.has_selectable_aux_panel() {
                     self.move_aux_panel_selection(-1);
                 } else if self.has_slash_suggestions() {
                     self.move_slash_selection(-1);
@@ -361,7 +391,7 @@ impl TuiApp {
                 }
             }
             KeyCode::Down => {
-                if self.has_session_picker() {
+                if self.has_selectable_aux_panel() {
                     self.move_aux_panel_selection(1);
                 } else if self.has_slash_suggestions() {
                     self.move_slash_selection(1);
@@ -408,14 +438,15 @@ impl TuiApp {
         }
     }
 
-    fn flush_pending_paste_burst(&mut self, force: bool) {
+    fn flush_pending_paste_burst(&mut self, force: bool) -> bool {
         let Some(text) = self.paste_burst.take_if_due(Instant::now(), force) else {
-            return;
+            return false;
         };
         self.input.insert_str(&text);
         self.reset_slash_selection();
         self.aux_panel = None;
         self.aux_panel_selection = 0;
+        true
     }
 
     fn handle_ctrl_c(&mut self) {
@@ -493,6 +524,61 @@ impl TuiApp {
         });
     }
 
+    fn show_model_panel(&mut self) {
+        let entries = self.model_picker_entries();
+        self.aux_panel_selection = entries
+            .iter()
+            .position(|entry| entry.is_current)
+            .unwrap_or(0);
+        self.aux_panel = Some(AuxPanel {
+            title: "Models".to_string(),
+            content: AuxPanelContent::ModelList(entries),
+        });
+    }
+
+    fn model_picker_entries(&self) -> Vec<ModelListEntry> {
+        let mut entries = Vec::new();
+
+        for model in self.model_catalog.list_visible() {
+            entries.push(ModelListEntry {
+                slug: model.slug.clone(),
+                display_name: model.display_name.clone(),
+                description: model.description.clone(),
+                is_current: model.slug == self.model,
+            });
+        }
+
+        if !entries.iter().any(|entry| entry.slug == self.model) {
+            entries.insert(
+                0,
+                ModelListEntry {
+                    slug: self.model.clone(),
+                    display_name: self.model.clone(),
+                    description: Some("current model".to_string()),
+                    is_current: true,
+                },
+            );
+        }
+
+        if entries.is_empty() {
+            entries.push(ModelListEntry {
+                slug: self.model.clone(),
+                display_name: self.model.clone(),
+                description: Some("current model".to_string()),
+                is_current: true,
+            });
+        }
+
+        entries
+    }
+
+    fn set_model(&mut self, model: String) -> Result<()> {
+        self.worker.set_model(model.clone())?;
+        self.model = model;
+        self.show_model_panel();
+        Ok(())
+    }
+
     fn handle_slash_command(&mut self, prompt: String) -> Result<()> {
         let trimmed = prompt.trim();
         let mut parts = trimmed.splitn(2, char::is_whitespace);
@@ -523,6 +609,26 @@ impl TuiApp {
                     ),
                 );
                 self.status_message = "Session status shown".to_string();
+                Ok(())
+            }
+            "/sessions" => {
+                self.worker.list_sessions()?;
+                self.status_message = "Loading sessions".to_string();
+                Ok(())
+            }
+            "/new" => {
+                self.worker.start_new_session()?;
+                self.aux_panel = None;
+                self.aux_panel_selection = 0;
+                self.status_message = "New session ready; send a prompt to start it".to_string();
+                Ok(())
+            }
+            "/rename" => {
+                if argument.is_empty() {
+                    anyhow::bail!("usage: /rename <new title>");
+                }
+                self.worker.rename_session(argument.to_string())?;
+                self.status_message = "Renaming current session".to_string();
                 Ok(())
             }
             "/session" => {
@@ -576,14 +682,12 @@ impl TuiApp {
             }
             "/model" => {
                 if argument.is_empty() {
-                    self.show_aux_panel("Model", format!("current model: {}", self.model));
+                    self.show_model_panel();
                     self.status_message = "Current model shown".to_string();
                     return Ok(());
                 }
 
-                self.worker.set_model(argument.to_string())?;
-                self.model = argument.to_string();
-                self.show_aux_panel("Model", format!("switched model to {}", self.model));
+                self.set_model(argument.to_string())?;
                 self.status_message = format!("Model set to {}", self.model);
                 Ok(())
             }
@@ -591,7 +695,7 @@ impl TuiApp {
                 self.push_item(
                     TranscriptItemKind::Error,
                     "Unknown command",
-                    "Available commands: /model [name], /session [new|list|switch|rename], /status, /exit",
+                    "Available commands: /model [name], /new, /rename <title>, /sessions, /status, /exit",
                 );
                 self.status_message = "Unknown command".to_string();
                 Ok(())
@@ -828,10 +932,10 @@ impl TuiApp {
         !self.slash_suggestions().is_empty()
     }
 
-    pub(crate) fn has_session_picker(&self) -> bool {
+    pub(crate) fn has_selectable_aux_panel(&self) -> bool {
         matches!(
             self.aux_panel.as_ref().map(|panel| &panel.content),
-            Some(AuxPanelContent::SessionList(_))
+            Some(AuxPanelContent::SessionList(_) | AuxPanelContent::ModelList(_))
         )
     }
 
@@ -862,47 +966,73 @@ impl TuiApp {
     }
 
     fn move_aux_panel_selection(&mut self, delta: isize) {
-        let Some(AuxPanel {
-            content: AuxPanelContent::SessionList(sessions),
-            ..
-        }) = self.aux_panel.as_ref()
-        else {
-            return;
-        };
-        if sessions.is_empty() {
+        let len = self
+            .aux_panel
+            .as_ref()
+            .map(|panel| match &panel.content {
+                AuxPanelContent::SessionList(sessions) => sessions.len(),
+                AuxPanelContent::ModelList(models) => models.len(),
+                AuxPanelContent::Text(_) => 0,
+            })
+            .unwrap_or(0);
+        if len == 0 {
             self.aux_panel_selection = 0;
             return;
         }
 
-        let len = sessions.len() as isize;
+        let len = len as isize;
         let next = (self.aux_panel_selection as isize + delta).clamp(0, len - 1);
         self.aux_panel_selection = next as usize;
     }
 
     fn try_accept_aux_panel_selection(&mut self) -> bool {
-        let Some(AuxPanel {
-            content: AuxPanelContent::SessionList(sessions),
-            ..
-        }) = self.aux_panel.as_ref()
-        else {
+        let Some(panel) = self.aux_panel.as_ref() else {
             return false;
         };
-        if !self.input.is_blank() || sessions.is_empty() {
+        if !self.input.is_blank() {
             return false;
         }
 
-        let selected = sessions[self.aux_panel_selection.min(sessions.len() - 1)].session_id;
-        if let Err(error) = self.worker.switch_session(selected) {
-            self.push_item(
-                TranscriptItemKind::Error,
-                "Switch failed",
-                error.to_string(),
-            );
-            self.status_message = "Failed to switch session".to_string();
-        } else {
-            self.status_message = format!("Switching to session {selected}");
+        match &panel.content {
+            AuxPanelContent::SessionList(sessions) => {
+                if sessions.is_empty() {
+                    return false;
+                }
+                let selected =
+                    sessions[self.aux_panel_selection.min(sessions.len() - 1)].session_id;
+                if let Err(error) = self.worker.switch_session(selected) {
+                    self.push_item(
+                        TranscriptItemKind::Error,
+                        "Switch failed",
+                        error.to_string(),
+                    );
+                    self.status_message = "Failed to switch session".to_string();
+                } else {
+                    self.status_message = format!("Switching to session {selected}");
+                }
+                true
+            }
+            AuxPanelContent::ModelList(models) => {
+                if models.is_empty() {
+                    return false;
+                }
+                let selected = models[self.aux_panel_selection.min(models.len() - 1)]
+                    .slug
+                    .clone();
+                if let Err(error) = self.set_model(selected.clone()) {
+                    self.push_item(
+                        TranscriptItemKind::Error,
+                        "Model switch failed",
+                        error.to_string(),
+                    );
+                    self.status_message = "Failed to switch model".to_string();
+                } else {
+                    self.status_message = format!("Model set to {selected}");
+                }
+                true
+            }
+            AuxPanelContent::Text(_) => false,
         }
-        true
     }
 }
 
@@ -915,7 +1045,7 @@ pub async fn run_interactive_tui(config: InteractiveTuiConfig) -> Result<AppExit
 mod tests {
     use std::path::PathBuf;
 
-    use clawcr_core::SessionId;
+    use clawcr_core::{BuiltinModelCatalog, SessionId};
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
     use pretty_assertions::assert_eq;
     use ratatui::layout::Rect;
@@ -945,6 +1075,8 @@ mod tests {
             pending_status_index: None,
             pending_assistant_index: None,
             worker: QueryWorkerHandle::stub(),
+            model_catalog: BuiltinModelCatalog::default(),
+            show_model_onboarding: false,
             aux_panel: None,
             aux_panel_selection: 0,
             last_ctrl_c_at: None,
@@ -997,23 +1129,26 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn slash_session_requests_listing() {
+    async fn slash_sessions_requests_listing() {
         let mut app = test_app();
 
-        app.handle_slash_command("/session".to_string())
-            .expect("session command should succeed");
+        app.handle_slash_command("/sessions".to_string())
+            .expect("sessions command should succeed");
 
         assert_eq!(app.status_message, "Loading sessions");
     }
 
     #[tokio::test]
-    async fn slash_session_list_requests_listing() {
+    async fn slash_new_requests_new_session() {
         let mut app = test_app();
 
-        app.handle_slash_command("/session list".to_string())
-            .expect("session list command should succeed");
+        app.handle_slash_command("/new".to_string())
+            .expect("new command should succeed");
 
-        assert_eq!(app.status_message, "Loading sessions");
+        assert_eq!(
+            app.status_message,
+            "New session ready; send a prompt to start it"
+        );
     }
 
     #[tokio::test]
@@ -1026,12 +1161,19 @@ mod tests {
         assert!(app.transcript.is_empty());
         assert_eq!(
             app.aux_panel.as_ref().map(|panel| panel.title.as_str()),
-            Some("Model")
+            Some("Models")
         );
         assert!(app
             .aux_panel
             .as_ref()
-            .is_some_and(|panel| matches!(&panel.content, AuxPanelContent::Text(body) if body.contains("current model: test-model"))));
+            .is_some_and(|panel| matches!(&panel.content, AuxPanelContent::ModelList(entries) if entries.iter().any(|entry| entry.slug == "test-model"))));
+    }
+
+    #[tokio::test]
+    async fn slash_rename_requires_title() {
+        let mut app = test_app();
+
+        assert!(app.handle_slash_command("/rename".to_string()).is_err());
     }
 
     #[tokio::test]
@@ -1085,7 +1227,7 @@ mod tests {
     async fn enter_executes_highlighted_slash_command() {
         let mut app = test_app();
         app.input.replace("/");
-        app.slash_selection = 3;
+        app.slash_selection = 5;
 
         app.handle_key(
             KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
@@ -1096,10 +1238,24 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn model_panel_selection_updates_model() {
+        let mut app = test_app();
+
+        app.handle_slash_command("/model".to_string())
+            .expect("model command should succeed");
+        app.handle_key(
+            KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+            Rect::default(),
+        );
+
+        assert_eq!(app.model, "test-model");
+    }
+
+    #[tokio::test]
     async fn session_new_command_updates_status() {
         let mut app = test_app();
 
-        app.handle_slash_command("/session new".to_string())
+        app.handle_slash_command("/new".to_string())
             .expect("slash command should succeed");
 
         assert_eq!(

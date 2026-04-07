@@ -2,6 +2,7 @@ use std::io::{self, Write};
 
 use anyhow::Result;
 use clap::Args;
+use clawcr_core::BuiltinModelCatalog;
 use clawcr_safety::legacy_permissions::PermissionMode;
 use clawcr_server::{
     InputItem, ItemEnvelope, ItemKind, ServerEvent, SessionStartParams, StdioServerClient,
@@ -107,6 +108,9 @@ pub async fn run_agent(cli: AgentCli) -> Result<()> {
         interactive,
     )?;
     let server_env = server_env_overrides(&resolved);
+    let model_catalog = BuiltinModelCatalog::load()?;
+    let stored_config = config::load_config().unwrap_or_default();
+    let show_model_onboarding = interactive && cli.model.is_none() && stored_config.model.is_none();
 
     if interactive {
         run_interactive_tui(InteractiveTuiConfig {
@@ -114,6 +118,8 @@ pub async fn run_agent(cli: AgentCli) -> Result<()> {
             cwd,
             server_env,
             startup_prompt: None,
+            model_catalog,
+            show_model_onboarding,
         })
         .await?;
         return Ok(());

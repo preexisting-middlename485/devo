@@ -179,12 +179,57 @@ fn render_composer(app: &TuiApp, inner_width: u16) -> Paragraph<'_> {
                     );
                 }
             }
+            AuxPanelContent::ModelList(entries) => {
+                if entries.is_empty() {
+                    append_wrapped_composer_line(
+                        &mut lines,
+                        "  No models available.",
+                        inner_width,
+                        Style::new().dark_gray(),
+                    );
+                }
+
+                for (index, entry) in entries.iter().enumerate() {
+                    let selected =
+                        index == app.aux_panel_selection.min(entries.len().saturating_sub(1));
+                    let marker = if entry.is_current { "*" } else { " " };
+                    let style = if selected {
+                        Style::new().black().on_gray()
+                    } else {
+                        Style::new().dark_gray()
+                    };
+                    let title_style = if selected {
+                        style.add_modifier(Modifier::BOLD)
+                    } else {
+                        Style::new().dark_gray().add_modifier(Modifier::BOLD)
+                    };
+
+                    let description = entry
+                        .description
+                        .as_deref()
+                        .filter(|description| !description.trim().is_empty())
+                        .unwrap_or("custom model");
+                    append_wrapped_composer_session_entry(
+                        &mut lines,
+                        &format!(
+                            "  {} {marker} {}  [{}]  {}",
+                            if selected { ">" } else { "•" },
+                            entry.display_name,
+                            entry.slug,
+                            description
+                        ),
+                        inner_width,
+                        style,
+                        title_style,
+                    );
+                }
+            }
         }
 
         lines.push(Line::from(""));
         append_wrapped_composer_line(
             &mut lines,
-            "  press esc to leave",
+            "  press enter to choose, esc to leave",
             inner_width,
             Style::new().dark_gray(),
         );
@@ -568,10 +613,41 @@ pub(crate) fn composer_height(app: &TuiApp, area: Rect) -> u16 {
                     ));
                 }
             }
+            AuxPanelContent::ModelList(entries) => {
+                if entries.is_empty() {
+                    total = total.saturating_add(wrapped_line_count_with_prefix(
+                        "  No models available.",
+                        inner_width,
+                        0,
+                    ));
+                }
+                for (index, entry) in entries.iter().enumerate() {
+                    let selected =
+                        index == app.aux_panel_selection.min(entries.len().saturating_sub(1));
+                    let marker = if entry.is_current { "*" } else { " " };
+                    let description = entry
+                        .description
+                        .as_deref()
+                        .filter(|description| !description.trim().is_empty())
+                        .unwrap_or("custom model");
+                    let rendered = format!(
+                        "  {} {marker} {}  [{}]  {}",
+                        if selected { ">" } else { "•" },
+                        entry.display_name,
+                        entry.slug,
+                        description
+                    );
+                    total = total.saturating_add(wrapped_line_count_with_prefix(
+                        &rendered,
+                        inner_width,
+                        0,
+                    ));
+                }
+            }
         }
         total = total.saturating_add(1);
         total = total.saturating_add(wrapped_line_count_with_prefix(
-            "  press esc to leave",
+            "  press enter to choose, esc to leave",
             inner_width,
             0,
         ));

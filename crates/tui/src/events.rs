@@ -13,6 +13,19 @@ pub(crate) struct SessionListEntry {
     pub is_active: bool,
 }
 
+/// One built-in or custom model entry shown in the interactive model picker.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ModelListEntry {
+    /// Stable model slug used when switching the active model.
+    pub slug: String,
+    /// Human-readable display name shown to the user.
+    pub display_name: String,
+    /// Optional descriptive text rendered beneath the model name.
+    pub description: Option<String>,
+    /// Whether this entry is the currently active model.
+    pub is_current: bool,
+}
+
 /// One event emitted by the background query worker into the interactive UI.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum WorkerEvent {

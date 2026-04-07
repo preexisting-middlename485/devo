@@ -132,16 +132,43 @@ fn micro_compact(content: String) -> String {
 // ---------------------------------------------------------------------------
 
 fn load_claude_md(cwd: &std::path::Path) -> Option<String> {
-    let path = cwd.join("CLAUDE.md");
-    std::fs::read_to_string(path).ok().filter(|s| !s.is_empty())
+    let mut sections = Vec::new();
+
+    for file_name in ["AGENTS.md", "CLAUDE.md"] {
+        let path = cwd.join(file_name);
+        if let Ok(content) = std::fs::read_to_string(path) {
+            let content = content.trim().to_string();
+            if !content.is_empty() {
+                sections.push(content);
+            }
+        }
+    }
+
+    if sections.is_empty() {
+        None
+    } else {
+        Some(sections.join("\n\n"))
+    }
 }
 
-fn build_system_prompt(base: &str, memory: &Option<String>) -> String {
-    match (base.is_empty(), memory) {
-        (true, Some(mem)) => mem.clone(),
-        (false, Some(mem)) => format!("{}\n\n{}", base, mem),
-        _ => base.to_string(),
+fn build_system_prompt(
+    base_instructions: &str,
+    system_prompt: &str,
+    memory: &Option<String>,
+) -> String {
+    let mut sections = Vec::new();
+    if !base_instructions.is_empty() {
+        sections.push(base_instructions.to_string());
     }
+    if !system_prompt.is_empty() {
+        sections.push(system_prompt.to_string());
+    }
+    if let Some(mem) = memory {
+        if !mem.is_empty() {
+            sections.push(mem.clone());
+        }
+    }
+    sections.join("\n\n")
 }
 
 // ---------------------------------------------------------------------------
@@ -205,7 +232,11 @@ pub async fn query(
         info!(turn = session.turn_count, "starting turn");
 
         // Build model request
-        let system = build_system_prompt(&session.config.system_prompt, &memory_content);
+        let system = build_system_prompt(
+            &session.config.base_instructions,
+            &session.config.system_prompt,
+            &memory_content,
+        );
         let request = ModelRequest {
             model: session.config.model.clone(),
             system: if system.is_empty() {

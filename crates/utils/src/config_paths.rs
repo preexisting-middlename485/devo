@@ -1,5 +1,7 @@
 use std::path::{Path, PathBuf};
 
+use crate::find_clawcr_home;
+
 /// The fixed directory name used for user-level and project-level config folders.
 pub const APP_CONFIG_DIR_NAME: &str = ".clawcr";
 
@@ -58,10 +60,8 @@ impl FileSystemConfigPathResolver {
 
     /// Creates a config-path resolver using the current process home directory.
     pub fn from_env() -> Result<Self, ConfigPathError> {
-        let user_home = std::env::var_os("HOME")
-            .or_else(|| std::env::var_os("USERPROFILE"))
-            .map(PathBuf::from)
-            .ok_or(ConfigPathError::HomeDirectoryUnavailable)?;
+        let user_home =
+            find_clawcr_home().map_err(|_| ConfigPathError::HomeDirectoryUnavailable)?;
         Ok(Self::new(user_home))
     }
 

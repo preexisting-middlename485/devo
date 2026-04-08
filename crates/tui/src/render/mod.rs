@@ -63,19 +63,18 @@ pub(crate) fn draw(frame: &mut Frame, app: &TuiApp) {
         .title(composer_title(app));
     let composer_inner = composer_block.inner(composer_area);
     frame.render_widget(composer_block, composer_area);
-    if let Some(entries) = inline_model_panel_entries(app) {
+    if let Some(panel) = inline_aux_panel(app) {
         let input_height = composer::line_count(app, layout::inner_width(composer_area)).max(1);
-        let panel_height = inline_model_panel_height(entries);
-        let [input_area, panel_area] = Layout::vertical([
+        let [input_area, panel_render_area] = Layout::vertical([
             Constraint::Length(input_height),
-            Constraint::Length(panel_height),
+            Constraint::Length(panel.height),
         ])
         .areas(composer_inner);
         frame.render_widget(
             composer::render(app, layout::inner_width(composer_area)),
             input_area,
         );
-        render_inline_model_panel(frame, app, panel_area, entries);
+        render_inline_aux_panel(frame, panel_render_area, app, panel);
     } else {
         frame.render_widget(
             composer::render(app, layout::inner_width(composer_area)),
@@ -118,17 +117,7 @@ pub(crate) fn composer_height(app: &TuiApp, area: Rect) -> u16 {
                 .min(layout::COMPOSER_MAX_HEIGHT),
         );
     base_height
-        .saturating_add(
-            app.aux_panel
-                .as_ref()
-                .and_then(|panel| match &panel.content {
-                    AuxPanelContent::ModelList(entries) if !app.show_model_onboarding => {
-                        Some(inline_model_panel_height(entries))
-                    }
-                    _ => None,
-                })
-                .unwrap_or(0),
-        )
+        .saturating_add(aux_panel_height(app))
         .min(area.height.saturating_sub(1).max(3))
 }
 
@@ -254,7 +243,7 @@ fn render_overlay(
     composer_area: Rect,
 ) {
     if let Some(panel) = &app.aux_panel {
-        if matches!(panel.content, AuxPanelContent::ModelList(_)) && !app.show_model_onboarding {
+        if inline_aux_panel(app).is_some() {
             return;
         }
         render_aux_panel_overlay(frame, app, content_area, transcript_area, panel);
@@ -393,34 +382,68 @@ fn render_aux_panel_overlay(
     }
 }
 
-fn inline_model_panel_entries(app: &TuiApp) -> Option<&[ModelListEntry]> {
-    match app.aux_panel.as_ref().map(|panel| &panel.content) {
-        Some(AuxPanelContent::ModelList(entries)) if !app.show_model_onboarding => Some(entries),
-        _ => None,
-    }
-}
-
 fn inline_model_panel_height(entries: &[ModelListEntry]) -> u16 {
     entries.len().saturating_mul(2).saturating_add(1).min(8) as u16
 }
 
-fn render_inline_model_panel(
-    frame: &mut Frame,
-    app: &TuiApp,
-    area: Rect,
-    entries: &[ModelListEntry],
-) {
-    let items = model_items(app, entries);
-    let mut state = ListState::default();
-    if !entries.is_empty() {
-        state.select(Some(
-            app.aux_panel_selection.min(entries.len().saturating_sub(1)),
-        ));
+struct InlineAuxPanel<'a> {
+    title: &'a str,
+    content: &'a AuxPanelContent,
+    height: u16,
+}
+
+fn inline_aux_panel(app: &TuiApp) -> Option<InlineAuxPanel<'_>> {
+    let panel = app.aux_panel.as_ref()?;
+    let height = aux_panel_height(app);
+    if height == 0 {
+        return None;
     }
-    let list = List::new(items)
-        .highlight_style(theme::selected().add_modifier(Modifier::BOLD))
-        .highlight_symbol("› ");
-    frame.render_stateful_widget(list, area, &mut state);
+
+    Some(InlineAuxPanel {
+        title: panel.title.as_str(),
+        content: &panel.content,
+        height,
+    })
+}
+
+fn render_inline_aux_panel(frame: &mut Frame, area: Rect, app: &TuiApp, panel: InlineAuxPanel<'_>) {
+    match panel.content {
+        AuxPanelContent::Text(body) => {
+            let text = Paragraph::new(body.clone())
+                .block(
+                    Block::default()
+                        .borders(Borders::ALL)
+                        .border_style(theme::overlay_border())
+                        .title(format!(" {} ", panel.title))
+                        .padding(Padding::horizontal(1)),
+                )
+                .wrap(Wrap { trim: false });
+            frame.render_widget(text, area);
+        }
+        AuxPanelContent::SessionList(entries) => {
+            let items = session_items(entries);
+            let mut state = ListState::default();
+            if !entries.is_empty() {
+                state.select(Some(app.aux_panel_selection.min(entries.len().saturating_sub(1))));
+            }
+            let list = List::new(items)
+                .block(overlay_block(panel.title, false))
+                .highlight_style(theme::selected().add_modifier(Modifier::BOLD))
+                .highlight_symbol("› ");
+            frame.render_stateful_widget(list, area, &mut state);
+        }
+        AuxPanelContent::ModelList(entries) => {
+            let items = model_items(app, entries);
+            let mut state = ListState::default();
+            if !entries.is_empty() {
+                state.select(Some(app.aux_panel_selection.min(entries.len().saturating_sub(1))));
+            }
+            let list = List::new(items)
+                .highlight_style(theme::selected().add_modifier(Modifier::BOLD))
+                .highlight_symbol("› ");
+            frame.render_stateful_widget(list, area, &mut state);
+        }
+    }
 }
 
 fn overlay_block(title: &str, hide_title: bool) -> Block<'static> {
@@ -608,6 +631,33 @@ fn model_items(app: &TuiApp, entries: &[ModelListEntry]) -> Vec<ListItem<'static
             ])
         })
         .collect()
+}
+
+fn text_panel_height(body: &str) -> u16 {
+    body.lines().count().saturating_add(2).clamp(4, MAX_TEXT_OVERLAY_HEIGHT as usize) as u16
+}
+
+fn session_panel_height(entries: &[crate::events::SessionListEntry]) -> u16 {
+    entries
+        .len()
+        .saturating_mul(2)
+        .saturating_add(2)
+        .clamp(4, MAX_LIST_OVERLAY_HEIGHT as usize) as u16
+}
+
+fn aux_panel_height(app: &TuiApp) -> u16 {
+    let Some(panel) = app.aux_panel.as_ref() else {
+        return 0;
+    };
+    if app.show_model_onboarding {
+        return 0;
+    }
+
+    match &panel.content {
+        AuxPanelContent::Text(body) => text_panel_height(body),
+        AuxPanelContent::SessionList(entries) => session_panel_height(entries),
+        AuxPanelContent::ModelList(entries) => inline_model_panel_height(entries),
+    }
 }
 
 #[cfg(test)]

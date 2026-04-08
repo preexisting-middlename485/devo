@@ -115,11 +115,7 @@ impl ModelProvider for AnthropicProvider {
         let req = build_request(&request, true)?;
         debug!(model = %request.model, provider = "anthropic", "anthropic stream");
 
-        let mut sdk_stream = self
-            .client
-            .messages()
-            .create_stream(req)
-            .await;
+        let mut sdk_stream = self.client.messages().create_stream(req).await;
 
         let (tx, rx) = tokio::sync::mpsc::channel::<anyhow::Result<StreamEvent>>(64);
 

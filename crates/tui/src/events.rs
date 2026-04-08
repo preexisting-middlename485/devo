@@ -34,6 +34,17 @@ pub(crate) struct ModelListEntry {
     pub is_custom_mode: bool,
 }
 
+/// One persisted model profile available for switching in the interactive model picker.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SavedModelEntry {
+    /// Stable model slug or custom model name.
+    pub model: String,
+    /// Optional provider base URL override stored with the model.
+    pub base_url: Option<String>,
+    /// Optional API key override stored with the model.
+    pub api_key: Option<String>,
+}
+
 /// One event emitted by the background query worker into the interactive UI.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum WorkerEvent {

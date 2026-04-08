@@ -63,10 +63,22 @@ pub(crate) fn draw(frame: &mut Frame, app: &TuiApp) {
         .title(composer_title(app));
     let composer_inner = composer_block.inner(composer_area);
     frame.render_widget(composer_block, composer_area);
-    frame.render_widget(
-        composer::render(app, layout::inner_width(composer_area)),
-        composer_inner,
-    );
+    if let Some(entries) = inline_model_panel_entries(app) {
+        let input_height = composer::line_count(app, layout::inner_width(composer_area)).max(1);
+        let panel_height = inline_model_panel_height(entries);
+        let [input_area, panel_area] = Layout::vertical([
+            Constraint::Length(input_height),
+            Constraint::Length(panel_height),
+        ])
+        .areas(composer_inner);
+        frame.render_widget(composer::render(app, layout::inner_width(composer_area)), input_area);
+        render_inline_model_panel(frame, app, panel_area, entries);
+    } else {
+        frame.render_widget(
+            composer::render(app, layout::inner_width(composer_area)),
+            composer_inner,
+        );
+    }
     frame.render_widget(render_footer(app), footer_area);
 
     render_overlay(frame, app, content_area, transcript_area, composer_area);
@@ -93,15 +105,22 @@ pub(crate) fn transcript_height(app: &TuiApp, area: Rect) -> u16 {
 }
 
 pub(crate) fn composer_height(app: &TuiApp, area: Rect) -> u16 {
-    composer::line_count(app, layout::inner_width(area))
+    let base_height = composer::line_count(app, layout::inner_width(area))
         .saturating_add(2)
-        .clamp(
-            3,
-            area.height
-                .saturating_sub(1)
-                .max(3)
-                .min(layout::COMPOSER_MAX_HEIGHT),
+        .clamp(3, area.height.saturating_sub(1).max(3).min(layout::COMPOSER_MAX_HEIGHT));
+    base_height
+        .saturating_add(
+        app.aux_panel
+            .as_ref()
+            .and_then(|panel| match &panel.content {
+                AuxPanelContent::ModelList(entries) if !app.show_model_onboarding => {
+                    Some(inline_model_panel_height(entries))
+                }
+                _ => None,
+            })
+            .unwrap_or(0),
         )
+        .min(area.height.saturating_sub(1).max(3))
 }
 
 fn composer_title(app: &TuiApp) -> Line<'static> {
@@ -226,6 +245,9 @@ fn render_overlay(
     composer_area: Rect,
 ) {
     if let Some(panel) = &app.aux_panel {
+        if matches!(panel.content, AuxPanelContent::ModelList(_)) && !app.show_model_onboarding {
+            return;
+        }
         render_aux_panel_overlay(frame, app, content_area, transcript_area, panel);
         return;
     }
@@ -360,6 +382,40 @@ fn render_aux_panel_overlay(
             frame.render_stateful_widget(list, overlay_area, &mut state);
         }
     }
+}
+
+fn inline_model_panel_entries(app: &TuiApp) -> Option<&[ModelListEntry]> {
+    match app.aux_panel.as_ref().map(|panel| &panel.content) {
+        Some(AuxPanelContent::ModelList(entries)) if !app.show_model_onboarding => Some(entries),
+        _ => None,
+    }
+}
+
+fn inline_model_panel_height(entries: &[ModelListEntry]) -> u16 {
+    entries
+        .len()
+        .saturating_mul(2)
+        .saturating_add(1)
+        .min(8) as u16
+}
+
+fn render_inline_model_panel(
+    frame: &mut Frame,
+    app: &TuiApp,
+    area: Rect,
+    entries: &[ModelListEntry],
+) {
+    let items = model_items(app, entries);
+    let mut state = ListState::default();
+    if !entries.is_empty() {
+        state.select(Some(
+            app.aux_panel_selection.min(entries.len().saturating_sub(1)),
+        ));
+    }
+    let list = List::new(items)
+        .highlight_style(theme::selected().add_modifier(Modifier::BOLD))
+        .highlight_symbol("› ");
+    frame.render_stateful_widget(list, area, &mut state);
 }
 
 fn overlay_block(title: &str, hide_title: bool) -> Block<'static> {
@@ -521,35 +577,29 @@ fn model_items(app: &TuiApp, entries: &[ModelListEntry]) -> Vec<ListItem<'static
                 .as_deref()
                 .filter(|value| !value.trim().is_empty())
                 .unwrap_or(if entry.is_custom_mode {
-                    "custom model"
-                } else if entry.is_builtin {
-                    entry.provider.as_str()
+                    "Open onboarding to add another model"
                 } else {
-                    "current"
+                    "saved model"
                 });
-            let badge = if entry.is_current {
-                "current"
-            } else if entry.is_custom_mode {
-                "custom"
-            } else {
-                entry.provider.as_str()
-            };
-            let title_style = if app.show_model_onboarding && entry.is_current {
-                Style::new().add_modifier(Modifier::BOLD)
-            } else {
-                theme::panel_title()
-            };
             ListItem::new(vec![
                 Line::from(vec![
-                    Span::styled(entry.display_name.clone(), title_style),
-                    Span::styled("  ", theme::muted()),
-                    Span::styled(format!("[{}]", entry.slug), theme::muted()),
+                    Span::styled(
+                        entry.display_name.clone(),
+                        if entry.is_custom_mode {
+                            theme::prompt()
+                        } else if entry.is_current {
+                            Style::new().add_modifier(Modifier::BOLD)
+                        } else {
+                            theme::panel_title()
+                        },
+                    ),
+                    if entry.is_current {
+                        Span::styled("  current", theme::muted())
+                    } else {
+                        Span::raw("")
+                    },
                 ]),
-                Line::from(vec![
-                    Span::styled(description.to_string(), theme::muted()),
-                    Span::styled("  ", theme::muted()),
-                    Span::styled(format!("[{badge}]"), theme::muted()),
-                ]),
+                Line::from(vec![Span::styled(description.to_string(), theme::muted())]),
             ])
         })
         .collect()

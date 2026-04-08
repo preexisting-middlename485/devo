@@ -15,3 +15,7 @@ mod worker;
 pub use app::run_interactive_tui;
 pub use app::AppExit;
 pub use app::InteractiveTuiConfig;
+pub use events::SavedModelEntry;
+
+#[cfg(test)]
+mod tests;

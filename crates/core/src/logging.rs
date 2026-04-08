@@ -1,7 +1,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::Once;
 use std::str::FromStr;
+use std::sync::Once;
 
 use tracing_appender::non_blocking::WorkerGuard;
 use tracing_appender::rolling::{

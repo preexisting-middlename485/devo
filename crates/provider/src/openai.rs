@@ -66,12 +66,9 @@ impl ModelProvider for OpenAIProvider {
         let req = build_request(&request)?;
         debug!(model = %request.model, provider = "openai", "openai complete");
 
-        let resp = self
-            .client
-            .chat()
-            .create(req)
-            .await
-            .map_err(|e| anyhow::anyhow!("OpenAI-compat API error for model {}: {e}", request.model))?;
+        let resp = self.client.chat().create(req).await.map_err(|e| {
+            anyhow::anyhow!("OpenAI-compat API error for model {}: {e}", request.model)
+        })?;
 
         let choice = resp.choices.into_iter().next();
         let mut content = Vec::new();
@@ -132,12 +129,12 @@ impl ModelProvider for OpenAIProvider {
         let req = build_request(&request)?;
         debug!(model = %request.model, provider = "openai", "openai stream");
 
-        let mut sdk_stream = self
-            .client
-            .chat()
-            .create_stream(req)
-            .await
-            .map_err(|e| anyhow::anyhow!("OpenAI-compat stream error for model {}: {e}", request.model))?;
+        let mut sdk_stream = self.client.chat().create_stream(req).await.map_err(|e| {
+            anyhow::anyhow!(
+                "OpenAI-compat stream error for model {}: {e}",
+                request.model
+            )
+        })?;
 
         let (tx, rx) = tokio::sync::mpsc::channel::<anyhow::Result<StreamEvent>>(64);
 

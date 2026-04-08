@@ -9,16 +9,13 @@ use clawcr_utils::find_clawcr_home;
 mod agent;
 mod config;
 
-use agent::{run_agent, AgentCli};
+use agent::run_agent;
 
 /// Top-level `clawcr` command that dispatches to interactive agent mode or one
 /// of the supporting runtime subcommands.
 #[derive(Debug, Parser)]
 #[command(name = "clawcr", version, about = "ClawCR CLI")]
 struct Cli {
-    #[command(flatten)]
-    agent: AgentCli,
-
     #[command(subcommand)]
     command: Option<Commands>,
 }
@@ -39,13 +36,8 @@ async fn main() -> Result<()> {
 
     match cli.command {
         Some(Commands::Server(args)) => run_server_process(args).await,
-        Some(Commands::Onboard) => {
-            let mut agent = cli.agent;
-            agent.query = None;
-            agent.print = None;
-            run_agent(agent, true).await
-        }
-        None => run_agent(cli.agent, false).await,
+        Some(Commands::Onboard) => run_agent(true).await,
+        None => run_agent(false).await,
     }
 }
 

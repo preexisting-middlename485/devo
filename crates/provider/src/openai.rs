@@ -21,7 +21,6 @@ use crate::{
     ModelProvider, ModelRequest, ModelResponse, RequestContent, ResponseContent, StopReason,
     StreamEvent, Usage,
 };
-
 /// OpenAI-compatible provider backed by the `async-openai` crate.
 ///
 /// Works with OpenAI, Ollama, vLLM, LM Studio, and any other
@@ -428,6 +427,19 @@ fn build_request(request: &ModelRequest) -> anyhow::Result<CreateChatCompletionR
             })
             .collect();
         builder.tools(sdk_tools);
+    }
+
+    if let Some(ref thinking) = request.thinking {
+        let reasoning_effort = match thinking.as_str() {
+            "disabled" => async_openai::types::chat::ReasoningEffort::None,
+            "enabled" => async_openai::types::chat::ReasoningEffort::Medium,
+            "low" | "Low" => async_openai::types::chat::ReasoningEffort::Low,
+            "medium" | "Medium" => async_openai::types::chat::ReasoningEffort::Medium,
+            "high" | "High" => async_openai::types::chat::ReasoningEffort::High,
+            "xhigh" | "Xhigh" | "XHigh" => async_openai::types::chat::ReasoningEffort::Xhigh,
+            _ => async_openai::types::chat::ReasoningEffort::Medium,
+        };
+        builder.reasoning_effort(reasoning_effort);
     }
 
     builder

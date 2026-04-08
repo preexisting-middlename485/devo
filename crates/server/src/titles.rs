@@ -51,6 +51,7 @@ pub(crate) fn build_title_generation_request(
         max_tokens: 32,
         tools: None,
         temperature: Some(0.0),
+        thinking: None,
     }
 }
 

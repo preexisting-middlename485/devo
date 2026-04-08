@@ -63,6 +63,8 @@ pub struct TurnStartParams {
     pub input: Vec<InputItem>,
     /// An optional requested model slug override.
     pub model: Option<String>,
+    /// An optional requested reasoning level override.
+    pub thinking: Option<String>,
     /// An optional sandbox override description.
     pub sandbox: Option<String>,
     /// An optional approval-policy override description.

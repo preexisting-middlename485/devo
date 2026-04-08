@@ -19,7 +19,7 @@ use std::{
 
 use crate::{
     app::{AuxPanel, AuxPanelContent, TuiApp},
-    events::ModelListEntry,
+    events::{ModelListEntry, ThinkingListEntry},
 };
 use clawcr_core::{BuiltinModelCatalog, ModelCatalog};
 
@@ -379,6 +379,31 @@ fn render_aux_panel_overlay(
             frame.render_widget(Clear, overlay_area);
             frame.render_stateful_widget(list, overlay_area, &mut state);
         }
+        AuxPanelContent::ThinkingList(entries) => {
+            let items = thinking_items(entries);
+            let mut state = ListState::default();
+            if !entries.is_empty() {
+                state.select(Some(app.aux_panel_selection.min(entries.len().saturating_sub(1))));
+            }
+            let overlay_area = if app.onboarding_prompt.is_some() {
+                centered_popup_area(
+                    content_area,
+                    entries.len().saturating_add(4) as u16,
+                    entries.len(),
+                )
+            } else {
+                bottom_popup_area(
+                    transcript_area,
+                    entries.len().saturating_add(4) as u16,
+                    entries.len(),
+                )
+            };
+            let list = List::new(items)
+                .block(overlay_block(&panel.title, false))
+                .highlight_style(theme::selected().add_modifier(Modifier::BOLD))
+                .highlight_symbol("› ");
+            frame.render_stateful_widget(list, overlay_area, &mut state);
+        }
     }
 }
 
@@ -427,7 +452,19 @@ fn render_inline_aux_panel(frame: &mut Frame, area: Rect, app: &TuiApp, panel: I
                 state.select(Some(app.aux_panel_selection.min(entries.len().saturating_sub(1))));
             }
             let list = List::new(items)
-                .block(overlay_block(panel.title, false))
+                .block(overlay_block(&panel.title, false))
+                .highlight_style(theme::selected().add_modifier(Modifier::BOLD))
+                .highlight_symbol("› ");
+            frame.render_stateful_widget(list, area, &mut state);
+        }
+        AuxPanelContent::ThinkingList(entries) => {
+            let items = thinking_items(entries);
+            let mut state = ListState::default();
+            if !entries.is_empty() {
+                state.select(Some(app.aux_panel_selection.min(entries.len().saturating_sub(1))));
+            }
+            let list = List::new(items)
+                .block(overlay_block(&panel.title, false))
                 .highlight_style(theme::selected().add_modifier(Modifier::BOLD))
                 .highlight_symbol("› ");
             frame.render_stateful_widget(list, area, &mut state);
@@ -633,11 +670,47 @@ fn model_items(app: &TuiApp, entries: &[ModelListEntry]) -> Vec<ListItem<'static
         .collect()
 }
 
+fn thinking_items(entries: &[ThinkingListEntry]) -> Vec<ListItem<'static>> {
+    if entries.is_empty() {
+        return vec![ListItem::new(Line::from(vec![Span::styled(
+            "No thinking options available.",
+            theme::muted(),
+        )]))];
+    }
+
+    entries
+        .iter()
+        .map(|entry| {
+            let title = if entry.is_current {
+                format!("{}  current", entry.label)
+            } else {
+                entry.label.clone()
+            };
+            ListItem::new(vec![
+                Line::from(vec![
+                    Span::styled(title, theme::panel_title()),
+                    Span::styled("  ", theme::muted()),
+                    Span::styled(format!("[{}]", entry.value), theme::muted()),
+                ]),
+                Line::from(vec![Span::styled(entry.description.clone(), theme::muted())]),
+            ])
+        })
+        .collect()
+}
+
 fn text_panel_height(body: &str) -> u16 {
     body.lines().count().saturating_add(2).clamp(4, MAX_TEXT_OVERLAY_HEIGHT as usize) as u16
 }
 
 fn session_panel_height(entries: &[crate::events::SessionListEntry]) -> u16 {
+    entries
+        .len()
+        .saturating_mul(2)
+        .saturating_add(2)
+        .clamp(4, MAX_LIST_OVERLAY_HEIGHT as usize) as u16
+}
+
+fn thinking_panel_height(entries: &[ThinkingListEntry]) -> u16 {
     entries
         .len()
         .saturating_mul(2)
@@ -656,6 +729,7 @@ fn aux_panel_height(app: &TuiApp) -> u16 {
     match &panel.content {
         AuxPanelContent::Text(body) => text_panel_height(body),
         AuxPanelContent::SessionList(entries) => session_panel_height(entries),
+        AuxPanelContent::ThinkingList(entries) => thinking_panel_height(entries),
         AuxPanelContent::ModelList(entries) => inline_model_panel_height(entries),
     }
 }

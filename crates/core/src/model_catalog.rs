@@ -2,7 +2,7 @@ use serde::Deserialize;
 
 use crate::{
     InputModality, ModelCatalog, ModelConfig, ModelConfigError, ModelVisibility, ProviderKind,
-    ReasoningLevel, TruncationPolicyConfig,
+    ReasoningLevel, ThinkingCapability, TruncationPolicyConfig,
 };
 
 const DEFAULT_BASE_INSTRUCTIONS: &str = include_str!("../default_base_instructions.txt");
@@ -94,6 +94,8 @@ struct RawBuiltinModelConfig {
     default_reasoning_level: ReasoningLevel,
     #[serde(default)]
     supported_reasoning_levels: Vec<ReasoningLevel>,
+    #[serde(default)]
+    thinking_capability: Option<RawThinkingCapability>,
     base_instructions: String,
     #[serde(default)]
     context_window: Option<u32>,
@@ -130,6 +132,13 @@ impl RawBuiltinModelConfig {
         } else {
             self.supported_reasoning_levels
         };
+        model.thinking_capability = self.thinking_capability.map(|capability| match capability {
+            RawThinkingCapability::Levels => {
+                ThinkingCapability::Levels(model.supported_reasoning_levels.clone())
+            }
+            RawThinkingCapability::Toggle => ThinkingCapability::Toggle,
+            RawThinkingCapability::Disabled => ThinkingCapability::Disabled,
+        });
         model.base_instructions = self.base_instructions;
         model.context_window = self.context_window.unwrap_or(model.context_window);
         model.effective_context_window_percent = self
@@ -179,6 +188,15 @@ where
             "expected truncation policy object or empty string, got {other}"
         ))),
     }
+}
+
+#[derive(Debug, Clone, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+enum RawThinkingCapability {
+    #[default]
+    Levels,
+    Toggle,
+    Disabled,
 }
 
 #[cfg(test)]

@@ -24,6 +24,8 @@ pub(crate) struct QueryWorkerConfig {
     pub(crate) cwd: PathBuf,
     /// Environment overrides applied to the spawned server child process.
     pub(crate) server_env: Vec<(String, String)>,
+    /// Initial thinking mode used for new turns.
+    pub(crate) thinking_selection: Option<String>,
 }
 
 /// Commands accepted by the background query worker.
@@ -32,6 +34,8 @@ enum WorkerCommand {
     SubmitPrompt(String),
     /// Update the model used for future turns.
     SetModel(String),
+    /// Update the thinking mode used for future turns.
+    SetThinking(Option<String>),
     /// Replace the provider connection settings and restart the server client.
     ReconfigureProvider {
         /// Model identifier to use for future turns.
@@ -95,6 +99,13 @@ impl QueryWorkerHandle {
     pub(crate) fn set_model(&self, model: String) -> Result<()> {
         self.command_tx
             .send(WorkerCommand::SetModel(model))
+            .map_err(|_| anyhow::anyhow!("interactive worker is no longer running"))
+    }
+
+    /// Updates the thinking mode used for future turns.
+    pub(crate) fn set_thinking(&self, thinking: Option<String>) -> Result<()> {
+        self.command_tx
+            .send(WorkerCommand::SetThinking(thinking))
             .map_err(|_| anyhow::anyhow!("interactive worker is no longer running"))
     }
 
@@ -214,6 +225,7 @@ async fn run_worker_inner(
     let _ = client.initialize().await?;
     let mut session_id: Option<SessionId> = None;
     let mut model = config.model;
+    let mut thinking_selection = config.thinking_selection;
     let mut active_turn_id: Option<TurnId> = None;
     let mut turn_count = 0usize;
     let mut total_input_tokens = 0usize;
@@ -235,6 +247,7 @@ async fn run_worker_inner(
                             session_id: active_session_id,
                             input: vec![InputItem::Text { text: prompt }],
                             model: Some(model.clone()),
+                            thinking: thinking_selection.clone(),
                             sandbox: None,
                             approval_policy: None,
                             cwd: None,
@@ -255,6 +268,9 @@ async fn run_worker_inner(
                     }
                     Some(WorkerCommand::SetModel(next_model)) => {
                         model = next_model;
+                    }
+                    Some(WorkerCommand::SetThinking(next_thinking)) => {
+                        thinking_selection = next_thinking;
                     }
                     Some(WorkerCommand::ValidateProvider {
                         model: next_model,
@@ -740,6 +756,7 @@ async fn validate_provider_connection(
                     text: "Reply with OK only.".to_string(),
                 }],
                 model: Some(model.to_string()),
+                thinking: None,
                 sandbox: None,
                 approval_policy: None,
                 cwd: None,

@@ -607,9 +607,27 @@ impl ServerRuntime {
             if let Some(model) = params.model.clone() {
                 session.summary.resolved_model = Some(model.clone());
                 let base_instructions = self.deps.base_instructions_for_model(&model);
+                let thinking_selection = self
+                    .deps
+                    .model_catalog
+                    .get(&model)
+                    .map(|model| match model.effective_thinking_capability() {
+                        clawcr_core::ThinkingCapability::Disabled => None,
+                        clawcr_core::ThinkingCapability::Toggle => {
+                            Some(String::from("enabled"))
+                        }
+                        clawcr_core::ThinkingCapability::Levels(_) => {
+                            Some(model.default_reasoning_level.label().to_lowercase())
+                        }
+                    })
+                    .unwrap_or_default();
                 let mut core_session = session.core_session.lock().await;
                 core_session.config.model = model;
                 core_session.config.base_instructions = base_instructions;
+                core_session.config.thinking_selection = thinking_selection;
+            }
+            if let Some(thinking_selection) = params.thinking.clone() {
+                session.core_session.lock().await.config.thinking_selection = Some(thinking_selection);
             }
             let turn = TurnSummary {
                 turn_id: TurnId::new(),

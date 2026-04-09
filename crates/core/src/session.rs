@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 
+use crate::ReasoningLevel;
 use clawcr_safety::legacy_permissions::PermissionMode;
 
 use crate::{Message, TokenBudget};
@@ -9,6 +10,8 @@ use crate::{Message, TokenBudget};
 pub struct SessionConfig {
     pub model: String,
     pub base_instructions: String,
+    pub reasoning_level: ReasoningLevel,
+    pub thinking_selection: Option<String>,
     pub system_prompt: String,
     pub max_turns: usize,
     pub token_budget: TokenBudget,
@@ -20,6 +23,8 @@ impl Default for SessionConfig {
         Self {
             model: "claude-sonnet-4-20250514".to_string(),
             base_instructions: String::new(),
+            reasoning_level: ReasoningLevel::default(),
+            thinking_selection: None,
             system_prompt: String::new(),
             max_turns: 100,
             token_budget: TokenBudget::default(),
@@ -84,6 +89,8 @@ mod tests {
         let config = SessionConfig::default();
         assert_eq!(config.model, "claude-sonnet-4-20250514");
         assert!(config.base_instructions.is_empty());
+        assert_eq!(config.reasoning_level, ReasoningLevel::Medium);
+        assert_eq!(config.thinking_selection, None);
         assert!(config.system_prompt.is_empty());
         assert_eq!(config.max_turns, 100);
         assert_eq!(config.permission_mode, PermissionMode::AutoApprove);

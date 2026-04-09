@@ -281,6 +281,13 @@ pub async fn query(
             max_tokens: session.config.token_budget.max_output_tokens,
             tools: Some(registry.tool_definitions()),
             temperature: None,
+            thinking: Some(
+                session
+                    .config
+                    .thinking_selection
+                    .clone()
+                    .unwrap_or_else(|| session.config.reasoning_level.label().to_lowercase()),
+            ),
         };
         debug!(
             messages = request.messages.len(),

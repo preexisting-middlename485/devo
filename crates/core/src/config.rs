@@ -1057,6 +1057,7 @@ mod tests {
             description: None,
             default_reasoning_level: ReasoningLevel::Medium,
             supported_reasoning_levels: vec![ReasoningLevel::Medium],
+            thinking_capability: None,
             base_instructions: String::new(),
             context_window: 200_000,
             effective_context_window_percent: 90,

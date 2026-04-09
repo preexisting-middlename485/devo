@@ -1,7 +1,10 @@
 use std::path::PathBuf;
 use std::time::Instant;
 
-use clawcr_core::{BuiltinModelCatalog, ModelConfig, ModelVisibility, ProviderKind, SessionId};
+use clawcr_core::{
+    BuiltinModelCatalog, ModelConfig, ModelVisibility, ProviderKind, ReasoningLevel, SessionId,
+    ThinkingCapability,
+};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use pretty_assertions::assert_eq;
 use ratatui::layout::Rect;
@@ -34,7 +37,25 @@ fn test_app() -> TuiApp {
         pending_status_index: None,
         pending_assistant_index: None,
         worker: QueryWorkerHandle::stub(),
-        model_catalog: BuiltinModelCatalog::default(),
+        model_catalog: BuiltinModelCatalog::new(vec![ModelConfig {
+            slug: "test-model".to_string(),
+            display_name: "test-model".to_string(),
+            provider: ProviderKind::Anthropic,
+            description: None,
+            default_reasoning_level: ReasoningLevel::Medium,
+            supported_reasoning_levels: vec![ReasoningLevel::Low, ReasoningLevel::Medium],
+            thinking_capability: Some(ThinkingCapability::Toggle),
+            base_instructions: String::new(),
+            context_window: 200_000,
+            effective_context_window_percent: 90,
+            auto_compact_token_limit: None,
+            truncation_policy: clawcr_core::TruncationPolicyConfig::default(),
+            input_modalities: vec![clawcr_core::InputModality::Text],
+            supports_image_detail_original: false,
+            visibility: ModelVisibility::Visible,
+            supported_in_api: true,
+            priority: 0,
+        }]),
         saved_models: vec![SavedModelEntry {
             model: "test-model".to_string(),
             base_url: None,
@@ -53,6 +74,7 @@ fn test_app() -> TuiApp {
         onboarding_selected_api_key: None,
         aux_panel: None,
         aux_panel_selection: 0,
+        thinking_selection: None,
         last_ctrl_c_at: None,
         paste_burst: crate::paste_burst::PasteBurst::default(),
         should_quit: false,
@@ -164,6 +186,23 @@ async fn slash_model_shows_bottom_panel() {
             .aux_panel
             .as_ref()
             .is_some_and(|panel| matches!(&panel.content, AuxPanelContent::ModelList(entries) if entries.iter().any(|entry| entry.slug == "test-model") && entries.iter().any(|entry| entry.is_custom_mode))));
+}
+
+#[tokio::test]
+async fn slash_thinking_shows_bottom_panel() {
+    let mut app = test_app();
+
+    app.handle_slash_command("/thinking".to_string())
+        .expect("thinking command should succeed");
+
+    assert!(app.transcript.is_empty());
+    assert_eq!(
+        app.aux_panel.as_ref().map(|panel| panel.title.as_str()),
+        Some("Thinking")
+    );
+    assert!(app.aux_panel.as_ref().is_some_and(
+        |panel| matches!(&panel.content, AuxPanelContent::ThinkingList(entries) if !entries.is_empty())
+    ));
 }
 
 #[tokio::test]

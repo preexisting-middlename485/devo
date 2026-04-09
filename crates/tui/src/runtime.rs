@@ -10,6 +10,7 @@ impl TuiApp {
             model: config.model.clone(),
             cwd: config.cwd.clone(),
             server_env: config.server_env,
+            thinking_selection: None,
         });
 
         let mut app = Self {
@@ -30,6 +31,7 @@ impl TuiApp {
             aux_panel: None,
             pending_status_index: None,
             pending_assistant_index: None,
+            thinking_selection: None,
             worker,
             model_catalog: config.model_catalog,
             saved_models: config.saved_models,

@@ -49,6 +49,8 @@ pub struct ModelRequest {
     pub tools: Option<Vec<ToolDefinition>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub temperature: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub thinking: Option<String>,
 }
 
 #[cfg(test)]
@@ -117,6 +119,7 @@ mod tests {
             max_tokens: 4096,
             tools: None,
             temperature: None,
+            thinking: None,
         };
         let json = serde_json::to_string(&req).unwrap();
         assert!(!json.contains("tools"));

@@ -24,7 +24,7 @@ impl ProviderKind {
 }
 
 /// Enumerates the reasoning effort levels a model may support.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ReasoningLevel {
     /// Select the cheapest and most lightweight reasoning mode.
@@ -40,6 +40,109 @@ pub enum ReasoningLevel {
 impl Default for ReasoningLevel {
     fn default() -> Self {
         Self::Medium
+    }
+}
+
+/// Describes one user-selectable reasoning level and the text shown in pickers.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReasoningLevelOption {
+    /// The machine-readable reasoning level.
+    pub level: ReasoningLevel,
+    /// The human-readable description shown in selection surfaces.
+    pub description: String,
+}
+
+impl ReasoningLevelOption {
+    /// Creates a new reasoning-level option.
+    pub fn new(level: ReasoningLevel, description: impl Into<String>) -> Self {
+        Self {
+            level,
+            description: description.into(),
+        }
+    }
+}
+
+impl ReasoningLevel {
+    /// Returns a short human-readable label for this reasoning level.
+    pub fn label(&self) -> &'static str {
+        match self {
+            ReasoningLevel::Low => "Low",
+            ReasoningLevel::Medium => "Medium",
+            ReasoningLevel::High => "High",
+            ReasoningLevel::XHigh => "XHigh",
+        }
+    }
+
+    /// Returns a human-readable description for this reasoning level.
+    pub fn description(&self) -> &'static str {
+        match self {
+            ReasoningLevel::Low => "Fastest, cheapest, least deliberative",
+            ReasoningLevel::Medium => "Balanced speed and deliberation",
+            ReasoningLevel::High => "More deliberate for harder tasks",
+            ReasoningLevel::XHigh => "Most deliberate, highest effort",
+        }
+    }
+
+    /// Returns all supported reasoning levels with descriptions.
+    pub fn options() -> Vec<ReasoningLevelOption> {
+        vec![
+            ReasoningLevelOption::new(ReasoningLevel::Low, ReasoningLevel::Low.description()),
+            ReasoningLevelOption::new(ReasoningLevel::Medium, ReasoningLevel::Medium.description()),
+            ReasoningLevelOption::new(ReasoningLevel::High, ReasoningLevel::High.description()),
+            ReasoningLevelOption::new(ReasoningLevel::XHigh, ReasoningLevel::XHigh.description()),
+        ]
+    }
+}
+
+/// Describes one user-visible thinking option in a picker.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ThinkingOption {
+    /// The label shown to the user.
+    pub label: String,
+    /// The description shown beneath the label.
+    pub description: String,
+    /// The encoded selection value used when applying the choice.
+    pub value: String,
+}
+
+/// Describes how a model exposes controllable thinking behavior to the user.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ThinkingCapability {
+    /// Thinking controls are not exposed for this model.
+    Disabled,
+    /// Thinking is a simple on/off toggle.
+    Toggle,
+    /// Thinking is controlled by a set of selectable reasoning levels.
+    Levels(Vec<ReasoningLevel>),
+}
+
+impl ThinkingCapability {
+    /// Returns the selectable options to show in the UI for this capability.
+    pub fn options(&self) -> Vec<ThinkingOption> {
+        match self {
+            ThinkingCapability::Disabled => Vec::new(),
+            ThinkingCapability::Toggle => vec![
+                ThinkingOption {
+                    label: "Off".to_string(),
+                    description: "Disable thinking for this turn".to_string(),
+                    value: "disabled".to_string(),
+                },
+                ThinkingOption {
+                    label: "On".to_string(),
+                    description: "Enable the model's thinking mode".to_string(),
+                    value: "enabled".to_string(),
+                },
+            ],
+            ThinkingCapability::Levels(levels) => levels
+                .iter()
+                .cloned()
+                .map(|level| ThinkingOption {
+                    label: level.label().to_string(),
+                    description: level.description().to_string(),
+                    value: level.label().to_lowercase(),
+                })
+                .collect(),
+        }
     }
 }
 
@@ -138,6 +241,8 @@ pub struct ModelConfig {
     pub default_reasoning_level: ReasoningLevel,
     /// The complete set of reasoning levels supported by the model.
     pub supported_reasoning_levels: Vec<ReasoningLevel>,
+    /// The thinking controls exposed for this model, when explicitly configured.
+    pub thinking_capability: Option<ThinkingCapability>,
     /// The base instructions inserted before turn-specific prompt material.
     pub base_instructions: String,
     /// The total provider-reported context window size.
@@ -169,6 +274,7 @@ impl Default for ModelConfig {
             description: None,
             default_reasoning_level: ReasoningLevel::default(),
             supported_reasoning_levels: vec![ReasoningLevel::default()],
+            thinking_capability: None,
             base_instructions: String::new(),
             context_window: 200_000,
             effective_context_window_percent: 90,
@@ -180,6 +286,39 @@ impl Default for ModelConfig {
             supported_in_api: true,
             priority: 0,
         }
+    }
+}
+
+impl ModelConfig {
+    /// Returns the selectable reasoning levels for this model, deduplicated and ordered.
+    pub fn reasoning_level_options(&self) -> Vec<ReasoningLevelOption> {
+        let mut options = Vec::new();
+        let mut seen = std::collections::HashSet::new();
+
+        let push_level =
+            |level: &ReasoningLevel,
+             options: &mut Vec<ReasoningLevelOption>,
+             seen: &mut std::collections::HashSet<ReasoningLevel>| {
+                if seen.insert(level.clone()) {
+                    options.push(ReasoningLevelOption::new(
+                        level.clone(),
+                        level.description(),
+                    ));
+                }
+            };
+
+        push_level(&self.default_reasoning_level, &mut options, &mut seen);
+        for level in &self.supported_reasoning_levels {
+            push_level(level, &mut options, &mut seen);
+        }
+        options
+    }
+
+    /// Returns the thinking capability for this model, deriving a default when needed.
+    pub fn effective_thinking_capability(&self) -> ThinkingCapability {
+        self.thinking_capability
+            .clone()
+            .unwrap_or_else(|| ThinkingCapability::Levels(self.supported_reasoning_levels.clone()))
     }
 }
 
@@ -263,6 +402,7 @@ mod tests {
             description: None,
             default_reasoning_level: ReasoningLevel::Medium,
             supported_reasoning_levels: vec![ReasoningLevel::Medium],
+            thinking_capability: None,
             base_instructions: String::new(),
             context_window: 200_000,
             effective_context_window_percent: 90,

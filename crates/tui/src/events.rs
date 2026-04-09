@@ -2,6 +2,20 @@ use std::time::{Duration, Instant};
 
 use clawcr_core::{ProviderKind, SessionId};
 use ratatui::style::Color;
+
+/// One thinking option shown in the interactive thinking picker.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ThinkingListEntry {
+    /// The user-facing label shown on the main row.
+    pub label: String,
+    /// The human-readable description shown beneath the label.
+    pub description: String,
+    /// Encoded selection value used when applying the choice.
+    pub value: String,
+    /// Whether this entry matches the current active selection.
+    pub is_current: bool,
+}
+
 /// One persisted session entry shown in the interactive session picker panel.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct SessionListEntry {

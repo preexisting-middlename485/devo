@@ -2,7 +2,10 @@ use std::{collections::VecDeque, path::PathBuf, sync::Arc};
 
 use tokio::{sync::Mutex, task::JoinHandle};
 
-use clawcr_core::{ModelCatalog, SessionConfig, SessionId, SessionRecord, SessionState};
+use clawcr_core::{
+    default_base_instructions, ModelCatalog, SessionConfig, SessionId, SessionRecord, SessionState,
+    ThinkingCapability,
+};
 use clawcr_provider::ModelProvider;
 use clawcr_tools::ToolRegistry;
 
@@ -50,12 +53,31 @@ impl ServerRuntimeDependencies {
         let base_instructions = self
             .model_catalog
             .get(&model)
-            .map(|model| model.base_instructions.clone())
+            .map(|model| model.base_instructions.trim().to_string())
+            .filter(|instructions| !instructions.is_empty())
+            .unwrap_or_else(|| default_base_instructions().to_string());
+        let reasoning_level = self
+            .model_catalog
+            .get(&model)
+            .map(|model| model.default_reasoning_level.clone())
+            .unwrap_or_default();
+        let thinking_selection = self
+            .model_catalog
+            .get(&model)
+            .map(|model| match model.effective_thinking_capability() {
+                ThinkingCapability::Disabled => None,
+                ThinkingCapability::Toggle => Some(String::from("enabled")),
+                ThinkingCapability::Levels(_) => {
+                    Some(model.default_reasoning_level.label().to_lowercase())
+                }
+            })
             .unwrap_or_default();
         let mut state = SessionState::new(
             SessionConfig {
                 model,
                 base_instructions,
+                reasoning_level,
+                thinking_selection,
                 ..Default::default()
             },
             cwd,
@@ -68,8 +90,9 @@ impl ServerRuntimeDependencies {
     pub(crate) fn base_instructions_for_model(&self, model: &str) -> String {
         self.model_catalog
             .get(model)
-            .map(|model| model.base_instructions.clone())
-            .unwrap_or_default()
+            .map(|model| model.base_instructions.trim().to_string())
+            .filter(|instructions| !instructions.is_empty())
+            .unwrap_or_else(|| default_base_instructions().to_string())
     }
 }
 

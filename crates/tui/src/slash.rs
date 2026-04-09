@@ -8,7 +8,7 @@ pub(crate) struct SlashCommandSpec {
 }
 
 /// Canonical slash commands supported by the interactive TUI.
-pub(crate) const SLASH_COMMANDS: [SlashCommandSpec; 7] = [
+pub(crate) const SLASH_COMMANDS: [SlashCommandSpec; 8] = [
     SlashCommandSpec {
         name: "/model",
         description: "Show or change the active model",
@@ -28,6 +28,10 @@ pub(crate) const SLASH_COMMANDS: [SlashCommandSpec; 7] = [
     SlashCommandSpec {
         name: "/sessions",
         description: "List sessions and switch between them",
+    },
+    SlashCommandSpec {
+        name: "/thinking",
+        description: "Show or change the thinking mode",
     },
     SlashCommandSpec {
         name: "/status",

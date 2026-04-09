@@ -16,8 +16,8 @@ mod harness;
 use std::sync::{Arc, Mutex};
 
 use clawcr_core::{
-    query, ContentBlock, EventCallback, Message, QueryEvent, Role, SessionConfig, SessionState,
-    TokenBudget,
+    query, ContentBlock, EventCallback, Message, QueryEvent, ReasoningLevel, Role, SessionConfig,
+    SessionState, TokenBudget,
 };
 use clawcr_provider::openai::OpenAIProvider;
 use clawcr_safety::legacy_permissions::PermissionMode;
@@ -37,6 +37,8 @@ fn make_e2e_session(prompt: &str) -> SessionState {
     let config = SessionConfig {
         model: MODEL.to_string(),
         base_instructions: String::new(),
+        reasoning_level: ReasoningLevel::default(),
+        thinking_selection: None,
         system_prompt: "You are a helpful assistant. Be concise.".to_string(),
         max_turns: 10,
         token_budget: TokenBudget::new(32_000, 2_048),
@@ -329,6 +331,8 @@ async fn e2e_memory_prefetch_instruction_files() {
     let config = SessionConfig {
         model: MODEL.to_string(),
         base_instructions: String::new(),
+        reasoning_level: ReasoningLevel::default(),
+        thinking_selection: None,
         system_prompt: "You are a helpful assistant.".to_string(),
         max_turns: 5,
         token_budget: TokenBudget::new(32_000, 2_048),
@@ -381,6 +385,8 @@ async fn e2e_auto_compact_on_budget_threshold() {
     let config = SessionConfig {
         model: MODEL.to_string(),
         base_instructions: String::new(),
+        reasoning_level: ReasoningLevel::default(),
+        thinking_selection: None,
         system_prompt: "Be concise.".to_string(),
         max_turns: 10,
         token_budget: TokenBudget::new(4_000, 512),
@@ -497,6 +503,8 @@ async fn e2e_micro_compact_large_tool_result() {
     let config = SessionConfig {
         model: MODEL.to_string(),
         base_instructions: String::new(),
+        reasoning_level: ReasoningLevel::default(),
+        thinking_selection: None,
         system_prompt: "You have a tool called big_result. Call it now.".to_string(),
         max_turns: 5,
         token_budget: TokenBudget::new(32_000, 2_048),
@@ -576,6 +584,8 @@ async fn e2e_tool_use_round_trip() {
     let config = SessionConfig {
         model: MODEL.to_string(),
         base_instructions: String::new(),
+        reasoning_level: ReasoningLevel::default(),
+        thinking_selection: None,
         system_prompt: "You have access to a bash tool. Use it when asked to run commands."
             .to_string(),
         max_turns: 5,
@@ -705,6 +715,8 @@ async fn e2e_system_prompt_affects_response() {
     let config = SessionConfig {
         model: MODEL.to_string(),
         base_instructions: String::new(),
+        reasoning_level: ReasoningLevel::default(),
+        thinking_selection: None,
         system_prompt: "You are a pirate. Always respond starting with 'Arrr'.".to_string(),
         max_turns: 5,
         token_budget: TokenBudget::new(32_000, 2_048),

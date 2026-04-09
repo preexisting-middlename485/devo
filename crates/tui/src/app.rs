@@ -11,8 +11,8 @@ use ratatui::layout::{Constraint, Layout, Rect};
 
 use crate::{
     events::{
-        ModelListEntry, SavedModelEntry, SessionListEntry, TranscriptItem, TranscriptItemKind,
-        WorkerEvent,
+        ModelListEntry, SavedModelEntry, SessionListEntry, ThinkingListEntry, TranscriptItem,
+        TranscriptItemKind, WorkerEvent,
     },
     input::InputBuffer,
     onboarding_config::save_onboarding_config,
@@ -52,6 +52,8 @@ pub(crate) enum AuxPanelContent {
     SessionList(Vec<SessionListEntry>),
     /// Selectable model list shown after `/model` or onboarding.
     ModelList(Vec<ModelListEntry>),
+    /// Selectable thinking-mode list shown after `/thinking`.
+    ThinkingList(Vec<ThinkingListEntry>),
 }
 
 /// In-memory application state for the interactive terminal UI.
@@ -88,6 +90,8 @@ pub(crate) struct TuiApp {
     pub(crate) aux_panel: Option<AuxPanel>,
     /// Selected session row when the session picker panel is visible.
     pub(crate) aux_panel_selection: usize,
+    /// Current thinking selection applied to the active session.
+    pub(crate) thinking_selection: Option<String>,
     /// Index of the current turn status line rendered below the latest user message.
     pub(crate) pending_status_index: Option<usize>,
     /// Index of the assistant transcript item currently receiving streamed text.

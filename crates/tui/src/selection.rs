@@ -1,4 +1,5 @@
 use super::*;
+use crate::events::ThinkingListEntry;
 
 impl TuiApp {
     pub(crate) fn show_aux_panel(&mut self, title: impl Into<String>, body: impl Into<String>) {
@@ -29,6 +30,18 @@ impl TuiApp {
         self.aux_panel = Some(AuxPanel {
             title: "Models".to_string(),
             content: AuxPanelContent::ModelList(entries),
+        });
+    }
+
+    pub(crate) fn show_thinking_panel(&mut self) {
+        let entries = self.thinking_entries();
+        self.aux_panel_selection = entries
+            .iter()
+            .position(|entry| entry.is_current)
+            .unwrap_or(0);
+        self.aux_panel = Some(AuxPanel {
+            title: "Thinking".to_string(),
+            content: AuxPanelContent::ThinkingList(entries),
         });
     }
 
@@ -236,6 +249,11 @@ impl TuiApp {
                 self.status_message = "Loading sessions".to_string();
                 Ok(())
             }
+            "/thinking" => {
+                self.show_thinking_panel();
+                self.status_message = "Thinking options shown".to_string();
+                Ok(())
+            }
             "/new" => {
                 self.worker.start_new_session()?;
                 self.aux_panel = None;
@@ -338,6 +356,7 @@ impl TuiApp {
         matches!(
             self.aux_panel.as_ref().map(|panel| &panel.content),
             Some(AuxPanelContent::SessionList(_) | AuxPanelContent::ModelList(_))
+                | Some(AuxPanelContent::ThinkingList(_))
         )
     }
 
@@ -483,6 +502,7 @@ impl TuiApp {
             .map(|panel| match &panel.content {
                 AuxPanelContent::SessionList(sessions) => sessions.len(),
                 AuxPanelContent::ModelList(models) => models.len(),
+                AuxPanelContent::ThinkingList(thinking) => thinking.len(),
                 AuxPanelContent::Text(_) => 0,
             })
             .unwrap_or(0);
@@ -586,8 +606,51 @@ impl TuiApp {
                 }
                 true
             }
+            AuxPanelContent::ThinkingList(thinking) => {
+                if thinking.is_empty() {
+                    return false;
+                }
+                let selected = thinking[self.aux_panel_selection.min(thinking.len() - 1)].clone();
+                self.thinking_selection = Some(selected.value.clone());
+                if let Err(error) = self.worker.set_thinking(self.thinking_selection.clone()) {
+                    self.push_item(
+                        TranscriptItemKind::Error,
+                        "Thinking update failed",
+                        error.to_string(),
+                    );
+                    self.status_message = "Failed to update thinking mode".to_string();
+                } else {
+                    self.status_message = format!("Thinking set to {}", selected.label);
+                }
+                self.aux_panel = None;
+                self.aux_panel_selection = 0;
+                true
+            }
             AuxPanelContent::Text(_) => false,
         }
+    }
+
+    pub(crate) fn thinking_entries(&self) -> Vec<ThinkingListEntry> {
+        let Some(model) = self.model_catalog.get(&self.model) else {
+            return Vec::new();
+        };
+        let capability = model.effective_thinking_capability();
+        let options = capability.options();
+        let current = self
+            .thinking_selection
+            .as_deref()
+            .map(str::to_lowercase)
+            .unwrap_or_else(|| model.default_reasoning_level.label().to_lowercase());
+
+        options
+            .into_iter()
+            .map(|option| ThinkingListEntry {
+                is_current: option.value == current || option.label.to_lowercase() == current,
+                label: option.label,
+                description: option.description,
+                value: option.value,
+            })
+            .collect()
     }
 
     pub(crate) fn finish_onboarding_selection(&mut self) -> Result<()> {

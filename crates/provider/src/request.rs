@@ -1,4 +1,55 @@
+use std::fmt;
+use std::str::FromStr;
+
 use serde::{Deserialize, Serialize};
+
+/// A normalized message role used by provider adapters.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum RequestRole {
+    System,
+    Developer,
+    User,
+    Assistant,
+    Tool,
+    Function,
+}
+
+impl RequestRole {
+    /// Returns the stable wire label for this role.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            RequestRole::System => "system",
+            RequestRole::Developer => "developer",
+            RequestRole::User => "user",
+            RequestRole::Assistant => "assistant",
+            RequestRole::Tool => "tool",
+            RequestRole::Function => "function",
+        }
+    }
+}
+
+impl fmt::Display for RequestRole {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+impl FromStr for RequestRole {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "system" => Ok(RequestRole::System),
+            "developer" => Ok(RequestRole::Developer),
+            "user" => Ok(RequestRole::User),
+            "assistant" => Ok(RequestRole::Assistant),
+            "tool" => Ok(RequestRole::Tool),
+            "function" => Ok(RequestRole::Function),
+            other => Err(format!("invalid request role: {other}")),
+        }
+    }
+}
 
 /// A tool definition sent to the model.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -49,8 +100,21 @@ pub struct ModelRequest {
     pub tools: Option<Vec<ToolDefinition>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub temperature: Option<f64>,
+    #[serde(default)]
+    pub sampling: SamplingControls,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub thinking: Option<String>,
+}
+
+/// Sampling controls and model-selection hints shared across adapters.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct SamplingControls {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub temperature: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub top_p: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub top_k: Option<u32>,
 }
 
 #[cfg(test)]
@@ -119,6 +183,7 @@ mod tests {
             max_tokens: 4096,
             tools: None,
             temperature: None,
+            sampling: SamplingControls::default(),
             thinking: None,
         };
         let json = serde_json::to_string(&req).unwrap();
@@ -127,5 +192,21 @@ mod tests {
         let deserialized: ModelRequest = serde_json::from_str(&json).unwrap();
         assert_eq!(deserialized.model, "claude-sonnet-4-20250514");
         assert_eq!(deserialized.messages.len(), 1);
+    }
+
+    #[test]
+    fn request_role_roundtrip() {
+        for role in [
+            RequestRole::System,
+            RequestRole::Developer,
+            RequestRole::User,
+            RequestRole::Assistant,
+            RequestRole::Tool,
+            RequestRole::Function,
+        ] {
+            let rendered = role.as_str();
+            let parsed: RequestRole = rendered.parse().unwrap();
+            assert_eq!(parsed, role);
+        }
     }
 }

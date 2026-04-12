@@ -10,11 +10,6 @@ use serde_json::json;
 use crate::{Tool, ToolContext, ToolOutput};
 
 const DESCRIPTION: &str = include_str!("read.txt");
-const DEFAULT_READ_LIMIT: usize = 2000;
-const MAX_LINE_LENGTH: usize = 2000;
-const MAX_LINE_SUFFIX: &str = "... (line truncated to 2000 chars)";
-const MAX_BYTES: usize = 50 * 1024;
-const MAX_BYTES_LABEL: &str = "50 KB";
 
 pub struct ReadTool;
 
@@ -38,11 +33,11 @@ impl Tool for ReadTool {
                 },
                 "offset": {
                     "type": "integer",
-                    "description": "The line number to start reading from (1-indexed)"
+                    "description": "The line number to start reading from (1-indexed, default 1)"
                 },
                 "limit": {
                     "type": "integer",
-                    "description": "The maximum number of lines to read (defaults to 2000)"
+                    "description": "The maximum number of lines to read (no limit by default)"
                 }
             },
             "required": ["filePath"]
@@ -79,11 +74,7 @@ impl Tool for ReadTool {
         }
 
         if path.is_dir() {
-            return read_directory(
-                &path,
-                limit.unwrap_or(DEFAULT_READ_LIMIT),
-                offset.unwrap_or(1),
-            );
+            return read_directory(&path, limit.unwrap_or(usize::MAX), offset.unwrap_or(1));
         }
 
         if is_binary_file(&path)? {
@@ -93,11 +84,7 @@ impl Tool for ReadTool {
             )));
         }
 
-        read_file(
-            &path,
-            limit.unwrap_or(DEFAULT_READ_LIMIT),
-            offset.unwrap_or(1),
-        )
+        read_file(&path, limit.unwrap_or(usize::MAX), offset.unwrap_or(1))
     }
 }
 
@@ -177,12 +164,12 @@ fn read_file(path: &Path, limit: usize, offset: usize) -> anyhow::Result<ToolOut
             more = true;
             continue;
         }
-        if line.len() > MAX_LINE_LENGTH {
-            line.truncate(MAX_LINE_LENGTH);
-            line.push_str(MAX_LINE_SUFFIX);
+        if line.len() > 2000 {
+            line.truncate(2000);
+            line.push_str("... (line truncated to 2000 chars)");
         }
         let size = line.len() + if raw.is_empty() { 0 } else { 1 };
-        if bytes + size > MAX_BYTES {
+        if bytes + size > 50 * 1024 {
             cut = true;
             more = true;
             break;
@@ -210,16 +197,16 @@ fn read_file(path: &Path, limit: usize, offset: usize) -> anyhow::Result<ToolOut
     let next = last + 1;
     if cut {
         output.push_str(&format!(
-            "\n(Output capped at {}. Showing lines {}-{}. Use offset={} to continue.)",
-            MAX_BYTES_LABEL, offset, last, next
+            "\n(Output capped at 50 KB. Showing lines {}-{}. Use offset={} to continue.)",
+            offset, last, next
         ));
     } else if more {
         output.push_str(&format!(
             "\n(Showing lines {}-{} of {}. Use offset={} to continue.)",
             offset, last, count, next
-        ));
+        ))
     } else {
-        output.push_str(&format!("\n(End of file - total {} lines)", count));
+        output.push_str(&format!("\n(End of file - total {} lines)", count))
     }
     output.push_str("\n</content>");
 

@@ -109,18 +109,16 @@ pub fn load_server_provider(
         .or_else(|| env_non_empty("ANTHROPIC_AUTH_TOKEN"))
         .or_else(|| env_non_empty("OPENAI_API_KEY"));
 
-    let provider = match provider_name {
+    let provider: std::sync::Arc<dyn ModelProvider> = match provider_name {
         ProviderKind::Anthropic => {
             let api_key = api_key.context("anthropic provider requires an API key")?;
-            if let Some(url) = base_url {
-                std::sync::Arc::new(AnthropicProvider::new_with_url(api_key, url))
-                    as std::sync::Arc<dyn ModelProvider>
-            } else {
-                std::sync::Arc::new(AnthropicProvider::new(api_key))
-            }
+            let base_url = base_url.unwrap_or_else(|| "https://api.anthropic.com".to_string());
+            std::sync::Arc::new(AnthropicProvider::new(base_url).with_api_key(api_key))
         }
         ProviderKind::Ollama | ProviderKind::Openai => {
             let base_url = normalize_openai_base_url(&base_url.unwrap_or_else(|| {
+                // TODO: Figure out, should we put default base url here?
+                // Maybe throw an error.
                 if provider_name == ProviderKind::Ollama {
                     "http://localhost:11434".to_string()
                 } else {

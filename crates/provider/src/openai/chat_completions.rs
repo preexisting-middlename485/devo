@@ -9,14 +9,17 @@ use reqwest_eventsource::{Event, EventSource};
 use serde_json::{Value, json};
 use tracing::debug;
 
+use super::capabilities::{OpenAIReasoningMode, OpenAITransport, resolve_request_profile};
+use super::shared::{reasoning_value, request_role, tool_definitions};
 use crate::{
-    ModelProviderSDK, ModelRequest, ModelResponse, RequestContent, ResponseContent, StopReason,
+    ModelProviderSDK, ModelRequest, ModelResponse, ProviderAdapter, ProviderCapabilities,
+    ProviderFamily, RequestContent, ResponseContent, ResponseExtra, ResponseMetadata, StopReason,
     StreamEvent, Usage,
 };
 
-/// OpenAI-compatible provider backed by the official HTTP API.
-///
-/// Works with OpenAI and OpenAI-compatible servers by changing the base URL.
+/// OpenAI chat-completion provider backed by the official HTTP API.
+/// https://developers.openai.com/api/reference/chat-completions/overview
+/// Works with OpenAI chat-completion servers by changing the base URL.
 pub struct OpenAIProvider {
     client: Client,
     base_url: String,
@@ -55,12 +58,203 @@ impl OpenAIProvider {
     }
 }
 
-/// Builds the exact OpenAI-compatible request body used by this provider.
+/// Builds the exact OpenAI chat-completion request body used by this provider.
 ///
 /// This is intended for diagnostics and standalone probes so callers can inspect
 /// the serialized request payload when debugging compatibility issues.
-pub fn debug_request_body(request: &ModelRequest, stream: bool) -> Value {
-    build_request(request, stream)
+fn build_request(request: &ModelRequest, stream: bool) -> Value {
+    let profile = resolve_request_profile(&request.model, OpenAITransport::ChatCompletions);
+    let mut messages = Vec::new();
+    if let Some(system) = &request.system {
+        messages.push(json!({ "role": super::OpenAIRole::System, "content": system }));
+    }
+
+    for message in &request.messages {
+        match request_role(&message.role) {
+            super::OpenAIRole::Assistant => {
+                let mut text_parts = Vec::new();
+                let mut tool_calls = Vec::new();
+                for block in &message.content {
+                    match block {
+                        RequestContent::Text { text } => text_parts.push(text.clone()),
+                        RequestContent::ToolUse { id, name, input } => tool_calls.push(json!({
+                            "id": id,
+                            "type": "function",
+                            "function": {
+                                "name": name,
+                                "arguments": input.to_string(),
+                            }
+                        })),
+                        RequestContent::ToolResult { .. } => {}
+                    }
+                }
+                let mut entry = json!({ "role": super::OpenAIRole::Assistant });
+                entry["content"] = if text_parts.is_empty() {
+                    Value::Null
+                } else {
+                    Value::String(text_parts.join(""))
+                };
+                if !tool_calls.is_empty() {
+                    entry["tool_calls"] = Value::Array(tool_calls);
+                }
+                messages.push(entry);
+            }
+            role => {
+                for block in &message.content {
+                    match block {
+                        RequestContent::Text { text } => {
+                            messages.push(json!({ "role": role, "content": text }));
+                        }
+                        RequestContent::ToolResult {
+                            tool_use_id,
+                            content,
+                            ..
+                        } => {
+                            messages.push(json!({
+                                "role": super::OpenAIRole::Tool,
+                                "tool_call_id": tool_use_id,
+                                "content": content,
+                            }));
+                        }
+                        RequestContent::ToolUse { .. } => {}
+                    }
+                }
+            }
+        }
+    }
+
+    let mut root = json!({
+        "model": request.model,
+        "messages": messages,
+        "max_tokens": request.max_tokens,
+        "stream": stream,
+    });
+
+    if let Some(tools) = &request.tools {
+        root["tools"] = tool_definitions(tools);
+    }
+
+    let temperature = request.sampling.temperature.or(request.temperature);
+    if profile.supports_temperature
+        && let Some(temperature) = temperature
+    {
+        root["temperature"] = json!(temperature);
+    }
+
+    if profile.supports_top_p
+        && let Some(top_p) = request.sampling.top_p
+    {
+        root["top_p"] = json!(top_p);
+    }
+
+    if profile.supports_top_k
+        && let Some(top_k) = request.sampling.top_k
+    {
+        root["top_k"] = json!(top_k);
+    }
+
+    if let Some(payload) = reasoning_value(profile, request.thinking.as_deref()) {
+        match payload {
+            super::shared::OpenAIReasoningValue::Effort(effort) => {
+                root["reasoning_effort"] = json!(effort);
+            }
+            super::shared::OpenAIReasoningValue::Thinking { enabled } => {
+                root["thinking"] = json!({
+                    "type": if enabled { "enabled" } else { "disabled" },
+                });
+            }
+        }
+    }
+
+    if stream {
+        root["stream_options"] = json!({ "include_usage": true });
+    }
+
+    root
+}
+
+fn parse_response(value: Value) -> Result<ModelResponse> {
+    let id = value
+        .get("id")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_string();
+    let mut content = Vec::new();
+    let mut stop_reason = None;
+    let mut metadata = ResponseMetadata::default();
+
+    if let Some(choice) = value
+        .get("choices")
+        .and_then(Value::as_array)
+        .and_then(|choices| choices.first())
+    {
+        if let Some(message) = choice.get("message") {
+            if let Some(reasoning_content) =
+                message.get("reasoning_content").and_then(Value::as_str)
+            {
+                metadata.extras.push(ResponseExtra::ReasoningText {
+                    text: reasoning_content.to_string(),
+                });
+            }
+            if let Some(text) = message.get("content").and_then(Value::as_str) {
+                if !text.is_empty() {
+                    content.push(ResponseContent::Text(text.to_string()));
+                }
+            }
+            if let Some(tool_calls) = message.get("tool_calls").and_then(Value::as_array) {
+                for tool_call in tool_calls {
+                    if let Some(parsed) = parse_tool_use(tool_call) {
+                        content.push(parsed);
+                    }
+                }
+            }
+        }
+        if let Some(reason) = choice.get("finish_reason").and_then(Value::as_str) {
+            stop_reason = Some(parse_finish_reason(reason));
+        }
+    }
+
+    let usage = value.get("usage").and_then(parse_usage).unwrap_or_default();
+
+    Ok(ModelResponse {
+        id,
+        content,
+        stop_reason,
+        usage,
+        metadata,
+    })
+}
+
+fn parse_tool_use(value: &Value) -> Option<ResponseContent> {
+    let function = value.get("function")?.as_object()?;
+    let id = value.get("id")?.as_str()?.to_string();
+    let name = function.get("name")?.as_str()?.to_string();
+    let args = function
+        .get("arguments")
+        .and_then(Value::as_str)
+        .unwrap_or("{}");
+    let input =
+        serde_json::from_str(args).unwrap_or_else(|_| Value::Object(serde_json::Map::new()));
+    Some(ResponseContent::ToolUse { id, name, input })
+}
+
+fn parse_usage(value: &Value) -> Option<Usage> {
+    Some(Usage {
+        input_tokens: value.get("prompt_tokens")?.as_u64()? as usize,
+        output_tokens: value.get("completion_tokens")?.as_u64()? as usize,
+        cache_creation_input_tokens: None,
+        cache_read_input_tokens: None,
+    })
+}
+
+fn parse_finish_reason(value: &str) -> StopReason {
+    match value {
+        "tool_calls" => StopReason::ToolUse,
+        "length" => StopReason::MaxTokens,
+        "stop" => StopReason::EndTurn,
+        "content_filter" => StopReason::StopSequence,
+        _ => StopReason::EndTurn,
+    }
 }
 
 #[async_trait]
@@ -247,6 +441,7 @@ impl ModelProviderSDK for OpenAIProvider {
                 content,
                 stop_reason: finish_reason,
                 usage: stream_usage.unwrap_or_default(),
+                metadata: ResponseMetadata::default(),
             };
             yield StreamEvent::MessageDone { response };
         };
@@ -259,191 +454,23 @@ impl ModelProviderSDK for OpenAIProvider {
     }
 }
 
-fn build_request(request: &ModelRequest, stream: bool) -> Value {
-    let mut messages = Vec::new();
-    if let Some(system) = &request.system {
-        messages.push(json!({ "role": "system", "content": system }));
+#[async_trait]
+impl ProviderAdapter for OpenAIProvider {
+    fn family(&self) -> ProviderFamily {
+        ProviderFamily::OpenAI
     }
 
-    for message in &request.messages {
-        match message.role.as_str() {
-            "assistant" => {
-                let mut text_parts = Vec::new();
-                let mut tool_calls = Vec::new();
-                for block in &message.content {
-                    match block {
-                        RequestContent::Text { text } => text_parts.push(text.clone()),
-                        RequestContent::ToolUse { id, name, input } => tool_calls.push(json!({
-                            "id": id,
-                            "type": "function",
-                            "function": {
-                                "name": name,
-                                "arguments": input.to_string(),
-                            }
-                        })),
-                        RequestContent::ToolResult { .. } => {}
-                    }
-                }
-                let mut entry = json!({ "role": "assistant" });
-                entry["content"] = if text_parts.is_empty() {
-                    Value::Null
-                } else {
-                    Value::String(text_parts.join(""))
-                };
-                if !tool_calls.is_empty() {
-                    entry["tool_calls"] = Value::Array(tool_calls);
-                }
-                messages.push(entry);
-            }
-            _ => {
-                for block in &message.content {
-                    match block {
-                        RequestContent::Text { text } => {
-                            messages.push(json!({ "role": "user", "content": text }));
-                        }
-                        RequestContent::ToolResult {
-                            tool_use_id,
-                            content,
-                            ..
-                        } => {
-                            messages.push(json!({
-                                "role": "tool",
-                                "tool_call_id": tool_use_id,
-                                "content": content,
-                            }));
-                        }
-                        RequestContent::ToolUse { .. } => {}
-                    }
-                }
-            }
-        }
-    }
-
-    let mut root = json!({
-        "model": request.model,
-        "messages": messages,
-        "max_tokens": request.max_tokens,
-        "stream": stream,
-    });
-
-    if let Some(tools) = &request.tools {
-        root["tools"] = Value::Array(
-            tools
-                .iter()
-                .map(|tool| {
-                    json!({
-                        "type": "function",
-                        "function": {
-                            "name": tool.name,
-                            "description": tool.description,
-                            "parameters": tool.input_schema,
-                        }
-                    })
-                })
-                .collect(),
-        );
-    }
-
-    if let Some(temperature) = request.temperature {
-        root["temperature"] = json!(temperature);
-    }
-
-    if let Some(reasoning_effort) = map_reasoning_effort(request.thinking.as_deref()) {
-        root["reasoning_effort"] = json!(reasoning_effort);
-    }
-
-    if stream {
-        root["stream_options"] = json!({ "include_usage": true });
-    }
-
-    root
-}
-
-fn parse_response(value: Value) -> Result<ModelResponse> {
-    let id = value
-        .get("id")
-        .and_then(Value::as_str)
-        .unwrap_or_default()
-        .to_string();
-    let mut content = Vec::new();
-    let mut stop_reason = None;
-
-    if let Some(choice) = value
-        .get("choices")
-        .and_then(Value::as_array)
-        .and_then(|choices| choices.first())
-    {
-        if let Some(message) = choice.get("message") {
-            if let Some(text) = message.get("content").and_then(Value::as_str) {
-                if !text.is_empty() {
-                    content.push(ResponseContent::Text(text.to_string()));
-                }
-            }
-            if let Some(tool_calls) = message.get("tool_calls").and_then(Value::as_array) {
-                for tool_call in tool_calls {
-                    if let Some(parsed) = parse_tool_use(tool_call) {
-                        content.push(parsed);
-                    }
-                }
-            }
-        }
-        if let Some(reason) = choice.get("finish_reason").and_then(Value::as_str) {
-            stop_reason = Some(parse_finish_reason(reason));
-        }
-    }
-
-    let usage = value.get("usage").and_then(parse_usage).unwrap_or_default();
-
-    Ok(ModelResponse {
-        id,
-        content,
-        stop_reason,
-        usage,
-    })
-}
-
-fn parse_tool_use(value: &Value) -> Option<ResponseContent> {
-    let function = value.get("function")?.as_object()?;
-    let id = value.get("id")?.as_str()?.to_string();
-    let name = function.get("name")?.as_str()?.to_string();
-    let args = function
-        .get("arguments")
-        .and_then(Value::as_str)
-        .unwrap_or("{}");
-    let input =
-        serde_json::from_str(args).unwrap_or_else(|_| Value::Object(serde_json::Map::new()));
-    Some(ResponseContent::ToolUse { id, name, input })
-}
-
-fn parse_usage(value: &Value) -> Option<Usage> {
-    Some(Usage {
-        input_tokens: value.get("prompt_tokens")?.as_u64()? as usize,
-        output_tokens: value.get("completion_tokens")?.as_u64()? as usize,
-        cache_creation_input_tokens: None,
-        cache_read_input_tokens: None,
-    })
-}
-
-fn parse_finish_reason(value: &str) -> StopReason {
-    match value {
-        "tool_calls" => StopReason::ToolUse,
-        "length" => StopReason::MaxTokens,
-        "stop" => StopReason::EndTurn,
-        "content_filter" => StopReason::StopSequence,
-        _ => StopReason::EndTurn,
-    }
-}
-
-fn map_reasoning_effort(thinking: Option<&str>) -> Option<&'static str> {
-    let thinking = thinking?.trim();
-    match thinking {
-        "disabled" => Some("none"),
-        "enabled" | "" => Some("medium"),
-        "low" | "Low" => Some("low"),
-        "medium" | "Medium" => Some("medium"),
-        "high" | "High" => Some("high"),
-        "xhigh" | "Xhigh" | "XHigh" => Some("xhigh"),
-        _ => None,
+    fn capabilities(&self, model: &str) -> ProviderCapabilities {
+        let profile = resolve_request_profile(model, OpenAITransport::ChatCompletions);
+        let mut capabilities = ProviderCapabilities::openai();
+        capabilities.supports_temperature = profile.supports_temperature;
+        capabilities.supports_top_p = profile.supports_top_p;
+        capabilities.supports_reasoning_effort =
+            matches!(profile.reasoning_mode, OpenAIReasoningMode::Effort);
+        capabilities.supports_top_k = profile.supports_top_k;
+        capabilities.supports_reasoning_content = profile.supports_reasoning_content;
+        capabilities.supported_roles = profile.supported_roles.to_vec();
+        capabilities
     }
 }
 
@@ -452,11 +479,12 @@ mod tests {
     use pretty_assertions::assert_eq;
     use serde_json::json;
 
-    use super::{
-        debug_request_body, map_reasoning_effort, parse_finish_reason, parse_response, parse_usage,
-    };
+    use super::super::OpenAIReasoningEffort;
+    use super::super::shared::reasoning_effort;
+    use super::{parse_finish_reason, parse_response, parse_usage};
     use crate::{
-        ModelRequest, RequestContent, RequestMessage, ResponseContent, StopReason, ToolDefinition,
+        ModelRequest, RequestContent, RequestMessage, ResponseContent, SamplingControls,
+        StopReason, ToolDefinition, openai::chat_completions::build_request,
     };
 
     #[test]
@@ -498,10 +526,11 @@ mod tests {
                 }),
             }]),
             temperature: Some(0.2),
+            sampling: SamplingControls::default(),
             thinking: Some("medium".to_string()),
         };
 
-        let body = debug_request_body(&request, true);
+        let body = build_request(&request, true);
 
         assert_eq!(body["model"], json!("gpt-4o-mini"));
         assert_eq!(body["stream"], json!(true));
@@ -517,6 +546,60 @@ mod tests {
         assert_eq!(body["messages"][1]["content"], json!("Calling tool"));
         assert_eq!(body["messages"][2]["role"], json!("tool"));
         assert_eq!(body["messages"][2]["tool_call_id"], json!("call_123"));
+    }
+
+    #[test]
+    fn debug_request_body_uses_thinking_object_for_zai_models() {
+        let request = ModelRequest {
+            model: "glm-4.5".to_string(),
+            system: None,
+            messages: vec![RequestMessage {
+                role: "user".to_string(),
+                content: vec![RequestContent::Text {
+                    text: "hi".to_string(),
+                }],
+            }],
+            max_tokens: 64,
+            tools: None,
+            temperature: None,
+            sampling: SamplingControls::default(),
+            thinking: Some("disabled".to_string()),
+        };
+
+        let body = build_request(&request, false);
+
+        assert_eq!(body["thinking"]["type"], json!("disabled"));
+        assert!(body.get("reasoning_effort").is_none());
+    }
+
+    #[test]
+    fn debug_request_body_includes_sampling_controls_for_capable_models() {
+        let request = ModelRequest {
+            model: "glm-4.5".to_string(),
+            system: None,
+            messages: vec![RequestMessage {
+                role: "user".to_string(),
+                content: vec![RequestContent::Text {
+                    text: "hi".to_string(),
+                }],
+            }],
+            max_tokens: 64,
+            tools: None,
+            temperature: None,
+            sampling: SamplingControls {
+                temperature: Some(0.3),
+                top_p: Some(0.9),
+                top_k: Some(40),
+            },
+            thinking: Some("enabled".to_string()),
+        };
+
+        let body = build_request(&request, false);
+
+        assert_eq!(body["thinking"]["type"], json!("enabled"));
+        assert_eq!(body["temperature"], json!(0.3));
+        assert_eq!(body["top_p"], json!(0.9));
+        assert_eq!(body["top_k"], json!(40));
     }
 
     #[test]
@@ -626,12 +709,30 @@ mod tests {
 
     #[test]
     fn map_reasoning_effort_maps_supported_values() {
-        assert_eq!(map_reasoning_effort(Some("disabled")), Some("none"));
-        assert_eq!(map_reasoning_effort(Some("enabled")), Some("medium"));
-        assert_eq!(map_reasoning_effort(Some("low")), Some("low"));
-        assert_eq!(map_reasoning_effort(Some("medium")), Some("medium"));
-        assert_eq!(map_reasoning_effort(Some("high")), Some("high"));
-        assert_eq!(map_reasoning_effort(Some("xhigh")), Some("xhigh"));
-        assert_eq!(map_reasoning_effort(Some("unknown")), None);
+        assert_eq!(
+            reasoning_effort(Some("disabled")),
+            Some(OpenAIReasoningEffort::None)
+        );
+        assert_eq!(
+            reasoning_effort(Some("enabled")),
+            Some(OpenAIReasoningEffort::Medium)
+        );
+        assert_eq!(
+            reasoning_effort(Some("low")),
+            Some(OpenAIReasoningEffort::Low)
+        );
+        assert_eq!(
+            reasoning_effort(Some("medium")),
+            Some(OpenAIReasoningEffort::Medium)
+        );
+        assert_eq!(
+            reasoning_effort(Some("high")),
+            Some(OpenAIReasoningEffort::High)
+        );
+        assert_eq!(
+            reasoning_effort(Some("xhigh")),
+            Some(OpenAIReasoningEffort::XHigh)
+        );
+        assert_eq!(reasoning_effort(Some("unknown")), None);
     }
 }

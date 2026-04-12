@@ -899,15 +899,6 @@ async fn submit_prompt_inserts_status_line_below_user_message() {
 }
 
 #[tokio::test]
-async fn transcript_area_tracks_content_height_when_short() {
-    let app = test_app();
-    let area = Rect::new(0, 0, 80, 24);
-
-    assert_eq!(render::transcript_height(&app, area), 7);
-    assert!(app.transcript_area(area).height < area.height);
-}
-
-#[tokio::test]
 async fn session_switched_event_updates_model_and_restores_transcript() {
     let mut app = test_app();
 

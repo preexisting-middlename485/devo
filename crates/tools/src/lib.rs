@@ -74,7 +74,6 @@ mod tests {
             "bash",
             "read",
             "write",
-            "edit",
             "glob",
             "grep",
             "invalid",
@@ -86,7 +85,6 @@ mod tests {
             "skill",
             "apply_patch",
             "lsp",
-            "multiedit",
             "update_plan",
         ];
         for name in &expected {

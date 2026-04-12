@@ -9,41 +9,32 @@ use reqwest_eventsource::{Event, EventSource};
 use serde_json::{Value, json};
 use tracing::debug;
 
+use super::AnthropicAIRole;
 use crate::{
-    ModelProviderSDK, ModelRequest, ModelResponse, RequestContent, ResponseContent, StopReason,
-    StreamEvent, Usage,
+    ModelProviderSDK, ModelRequest, ModelResponse, ProviderAdapter, ProviderCapabilities,
+    ProviderFamily, RequestContent, ResponseContent, ResponseMetadata, StopReason, StreamEvent,
+    Usage,
 };
 
 /// Anthropic provider backed by the official HTTP API.
 pub struct AnthropicProvider {
     client: Client,
     base_url: String,
-    api_key: String,
+    api_key: Option<String>,
 }
 
 impl AnthropicProvider {
-    pub fn new(api_key: impl Into<String>) -> Self {
-        Self {
-            client: Client::new(),
-            base_url: "https://api.anthropic.com".to_string(),
-            api_key: api_key.into(),
-        }
-    }
-
-    pub fn new_with_url(api_key: impl Into<String>, base_url: impl Into<String>) -> Self {
+    pub fn new(base_url: impl Into<String>) -> Self {
         Self {
             client: Client::new(),
             base_url: base_url.into(),
-            api_key: api_key.into(),
+            api_key: None,
         }
     }
 
-    pub fn with_base_url(self, api_key: String, base_url: impl Into<String>) -> Self {
-        Self {
-            client: self.client,
-            base_url: base_url.into(),
-            api_key,
-        }
+    pub fn with_api_key(mut self, api_key: impl Into<String>) -> Self {
+        self.api_key = Some(api_key.into());
+        self
     }
 
     fn endpoint(&self) -> String {
@@ -51,12 +42,18 @@ impl AnthropicProvider {
     }
 
     fn request_builder(&self, body: &Value) -> reqwest::RequestBuilder {
-        self.client
+        let builder = self
+            .client
             .post(self.endpoint())
-            .header("x-api-key", &self.api_key)
             .header("anthropic-version", "2023-06-01")
-            .header(CONTENT_TYPE, HeaderValue::from_static("application/json"))
-            .json(body)
+            .header(CONTENT_TYPE, HeaderValue::from_static("application/json"));
+
+        let builder = if let Some(api_key) = &self.api_key {
+            builder.header("x-api-key", api_key)
+        } else {
+            builder
+        };
+        builder.json(body)
     }
 }
 
@@ -250,6 +247,7 @@ impl ModelProviderSDK for AnthropicProvider {
                                         cache_creation_input_tokens: None,
                                         cache_read_input_tokens: None,
                                     },
+                                    metadata: ResponseMetadata::default(),
                                 };
                                 yield StreamEvent::MessageDone { response };
                                 return;
@@ -270,6 +268,7 @@ impl ModelProviderSDK for AnthropicProvider {
                     cache_creation_input_tokens: None,
                     cache_read_input_tokens: None,
                 },
+                metadata: ResponseMetadata::default(),
             };
             yield StreamEvent::MessageDone { response };
         };
@@ -282,15 +281,25 @@ impl ModelProviderSDK for AnthropicProvider {
     }
 }
 
+#[async_trait]
+impl ProviderAdapter for AnthropicProvider {
+    fn family(&self) -> ProviderFamily {
+        ProviderFamily::Anthropic
+    }
+
+    fn capabilities(&self, _model: &str) -> ProviderCapabilities {
+        ProviderCapabilities::anthropic()
+    }
+}
+
 fn build_request(request: &ModelRequest, stream: bool) -> Value {
     let mut messages = Vec::new();
 
     for message in &request.messages {
-        let role = if message.role == "assistant" {
-            "assistant"
-        } else {
-            "user"
-        };
+        let role = message
+            .role
+            .parse::<AnthropicAIRole>()
+            .unwrap_or(AnthropicAIRole::User);
         let mut content = Vec::new();
         for block in &message.content {
             match block {
@@ -385,6 +394,7 @@ fn parse_response(value: Value) -> Result<ModelResponse> {
         content,
         stop_reason,
         usage,
+        metadata: ResponseMetadata::default(),
     })
 }
 

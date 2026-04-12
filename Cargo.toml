@@ -7,6 +7,8 @@ members = [
     "crates/safety",
     "crates/tasks",
     "crates/mcp",
+    "crates/protocol",
+    "crates/client",
     "crates/server",
     "crates/tui",
     "crates/utils",
@@ -28,6 +30,8 @@ clawcr-safety = { path = "crates/safety" }
 clawcr-tasks = { path = "crates/tasks" }
 clawcr-mcp = { path = "crates/mcp" }
 clawcr-utils = { path = "crates/utils" }
+clawcr-protocol = { path = "crates/protocol" }
+clawcr-client = { path = "crates/client" }
 clawcr-server = { path = "crates/server" }
 clawcr-tui = { path = "crates/tui" }
 

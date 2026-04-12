@@ -38,6 +38,27 @@ pub struct ModelResponse {
     pub content: Vec<ResponseContent>,
     pub stop_reason: Option<StopReason>,
     pub usage: Usage,
+    #[serde(default)]
+    pub metadata: ResponseMetadata,
+}
+
+/// Optional provider-specific response data preserved alongside the shared IR.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum ResponseExtra {
+    /// Reasoning text or reasoning summary surfaced by a provider.
+    ReasoningText { text: String },
+    /// Structured provider-specific payload that does not map into the shared IR.
+    ProviderSpecific {
+        provider: String,
+        payload: serde_json::Value,
+    },
+}
+
+/// Additional response metadata preserved by adapters.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct ResponseMetadata {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub extras: Vec<ResponseExtra>,
 }
 
 #[cfg(test)]
@@ -93,6 +114,7 @@ mod tests {
                 cache_creation_input_tokens: None,
                 cache_read_input_tokens: None,
             },
+            metadata: ResponseMetadata::default(),
         };
         let json = serde_json::to_string(&resp).unwrap();
         let deserialized: ModelResponse = serde_json::from_str(&json).unwrap();

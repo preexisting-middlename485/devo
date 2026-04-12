@@ -1,4 +1,6 @@
-use clawcr_provider::{ModelRequest, RequestContent, RequestMessage, ResponseContent};
+use clawcr_provider::{
+    ModelRequest, RequestContent, RequestMessage, ResponseContent, SamplingControls,
+};
 
 /// Derives a cheap deterministic provisional session title from the first user prompt.
 pub(crate) fn derive_provisional_title(input: &str) -> Option<String> {
@@ -51,6 +53,7 @@ pub(crate) fn build_title_generation_request(
         max_tokens: 32,
         tools: None,
         temperature: Some(0.0),
+        sampling: SamplingControls::default(),
         thinking: None,
     }
 }

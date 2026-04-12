@@ -299,6 +299,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "clawcr-client"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clawcr-protocol",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "clawcr-core"
 version = "0.1.0"
 dependencies = [
@@ -336,6 +348,18 @@ dependencies = [
  "thiserror 2.0.18",
  "tokio",
  "tracing",
+]
+
+[[package]]
+name = "clawcr-protocol"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "clawcr-core",
+ "serde",
+ "serde_json",
+ "smol_str",
+ "thiserror 2.0.18",
 ]
 
 [[package]]
@@ -378,7 +402,9 @@ dependencies = [
  "async-trait",
  "chrono",
  "clap",
+ "clawcr-client",
  "clawcr-core",
+ "clawcr-protocol",
  "clawcr-provider",
  "clawcr-safety",
  "clawcr-tools",

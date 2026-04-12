@@ -1,12 +1,13 @@
 use std::path::Path;
 use std::sync::Arc;
 
-use chrono::Local;
 use futures::StreamExt;
 use serde_json::json;
 use tracing::{debug, info, info_span, warn};
 
-use clawcr_provider::{ModelProvider, ModelRequest, ResponseContent, StopReason, StreamEvent};
+use clawcr_provider::{
+    ModelProvider, ModelRequest, ResponseContent, SamplingControls, StopReason, StreamEvent,
+};
 use clawcr_tools::{ToolCall, ToolContext, ToolOrchestrator, ToolRegistry};
 
 use crate::{AgentError, ContentBlock, Message, Role, SessionState};
@@ -141,7 +142,7 @@ fn micro_compact(content: String) -> String {
 // Memory prefetch (capability 1.9)
 // ---------------------------------------------------------------------------
 
-fn load_claude_md(cwd: &std::path::Path) -> Option<String> {
+fn load_prompt_md(cwd: &std::path::Path) -> Option<String> {
     let mut sections = Vec::new();
 
     for file_name in ["AGENTS.md", "CLAUDE.md"] {
@@ -192,7 +193,6 @@ fn build_environment_context(cwd: &Path) -> String {
         "OS": std::env::consts::OS,
         "Arch": std::env::consts::ARCH,
         "Family": std::env::consts::FAMILY,
-        "Time": Local::now().to_rfc3339(),
         "CWD": cwd.display().to_string(),
         "Shell": shell,
     });
@@ -238,7 +238,7 @@ pub async fn query(
     };
 
     // 1.9: Memory prefetch — load CLAUDE.md once before the loop
-    let memory_content = load_claude_md(&session.cwd);
+    let memory_content = load_prompt_md(&session.cwd);
 
     let mut retry_count: usize = 0;
     let mut context_compacted = false;
@@ -288,6 +288,7 @@ pub async fn query(
             max_tokens: session.config.token_budget.max_output_tokens,
             tools: Some(registry.tool_definitions()),
             temperature: None,
+            sampling: SamplingControls::default(),
             thinking: Some(
                 session
                     .config
@@ -557,6 +558,7 @@ mod tests {
                             }],
                             stop_reason: Some(StopReason::ToolUse),
                             usage: Usage::default(),
+                            metadata: Default::default(),
                         },
                     }),
                 ]
@@ -572,6 +574,7 @@ mod tests {
                             content: vec![ResponseContent::Text("done".into())],
                             stop_reason: Some(StopReason::EndTurn),
                             usage: Usage::default(),
+                            metadata: Default::default(),
                         },
                     }),
                 ]
@@ -597,7 +600,6 @@ mod tests {
         assert!(prompt.contains("base instructions"));
         assert!(prompt.contains("Environment context (read only):"));
         assert!(prompt.contains("\"OS\""));
-        assert!(prompt.contains("\"Time\""));
         assert!(prompt.contains("/tmp/project"));
         assert!(prompt.contains("system prompt"));
         assert!(prompt.contains("memory"));

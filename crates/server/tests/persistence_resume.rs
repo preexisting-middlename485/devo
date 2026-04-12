@@ -10,7 +10,8 @@ use tokio::time::{Duration, timeout};
 
 use clawcr_core::BuiltinModelCatalog;
 use clawcr_provider::{
-    ModelProvider, ModelRequest, ModelResponse, ResponseContent, StopReason, StreamEvent, Usage,
+    ModelProvider, ModelRequest, ModelResponse, ResponseContent, ResponseMetadata, StopReason,
+    StreamEvent, Usage,
 };
 use clawcr_server::{ClientTransportKind, ServerRuntime, ServerRuntimeDependencies};
 use clawcr_tools::ToolRegistry;
@@ -25,6 +26,7 @@ impl ModelProvider for SingleReplyProvider {
             content: vec![ResponseContent::Text("Generated rollout title".to_string())],
             stop_reason: Some(StopReason::EndTurn),
             usage: Usage::default(),
+            metadata: ResponseMetadata::default(),
         })
     }
 
@@ -43,6 +45,7 @@ impl ModelProvider for SingleReplyProvider {
                     content: vec![ResponseContent::Text("Hello from persistence test.".into())],
                     stop_reason: Some(StopReason::EndTurn),
                     usage: Usage::default(),
+                    metadata: ResponseMetadata::default(),
                 },
             }),
         ])))

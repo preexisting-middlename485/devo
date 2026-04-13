@@ -202,7 +202,7 @@ impl Default for TruncationPolicyConfig {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 /// Static metadata and capability flags for one model in the catalog.
 pub struct ModelPreset {
@@ -235,6 +235,14 @@ pub struct ModelPreset {
     /// Whether the user configured API access for this model.
     #[serde(rename = "supported_in_api")]
     pub api_configured: bool,
+    /// Default temperature to use when the model does not override it.
+    pub temperature: Option<f32>,
+    /// Default nucleus sampling value to use when the model does not override it.
+    pub top_p: Option<f32>,
+    /// Default top-k sampling value to use when the model does not override it.
+    pub top_k: Option<f32>,
+    /// Default maximum token limit for responses from this model.
+    pub max_tokens: Option<u32>,
     /// Relative priority used when choosing a default visible model.
     pub priority: i32,
 }
@@ -256,6 +264,10 @@ impl Default for ModelPreset {
             input_modalities: vec![InputModality::default()],
             supports_image_detail_original: false,
             api_configured: true,
+            temperature: None,
+            top_p: None,
+            top_k: None,
+            max_tokens: None,
             priority: 0,
         }
     }
@@ -390,6 +402,10 @@ mod tests {
             supports_image_detail_original: false,
             api_configured: true,
             priority,
+            temperature: None,
+            top_p: None,
+            top_k: None,
+            max_tokens: None,
         }
     }
 

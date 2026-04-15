@@ -7,6 +7,7 @@ use super::{
     AppConfig, AppConfigLoader, ContextManageConfig, FileSystemAppConfigLoader, LogRotation,
     LoggingConfig, SafetyPolicyModelSelection, SummaryModelSelection,
 };
+use crate::SkillsConfig;
 
 fn unique_temp_dir(name: &str) -> PathBuf {
     let nanos = SystemTime::now()
@@ -33,7 +34,7 @@ fn loader_merges_user_project_and_cli_layers() {
     .expect("write user config");
     std::fs::write(
         workspace.join(".clawcr").join("config.toml"),
-        "enable_auxiliary_model = true\nproject_root_markers = ['.git', 'Cargo.toml']\n[context]\nauto_compact_percent = 80\n[logging]\njson = true\n[logging.file]\ndirectory = 'diagnostics'\nfilename_prefix = 'agent'\n",
+        "enable_auxiliary_model = true\nproject_root_markers = ['.git', 'Cargo.toml']\n[context]\nauto_compact_percent = 80\n[logging]\njson = true\n[logging.file]\ndirectory = 'diagnostics'\nfilename_prefix = 'agent'\n[skills]\nenabled = true\nworkspace_roots = ['project-skills']\nwatch_for_changes = false\n",
     )
     .expect("write project config");
 
@@ -53,6 +54,10 @@ level = "trace"
 directory = "cli-logs"
 rotation = "Hourly"
 max_files = 2
+
+[skills]
+enabled = false
+user_roots = ["custom-user-skills"]
 "#
     .parse()
     .expect("parse cli overrides");
@@ -89,6 +94,12 @@ max_files = 2
                     max_files: 2,
                 },
             },
+            skills: SkillsConfig {
+                enabled: false,
+                user_roots: vec![PathBuf::from("custom-user-skills")],
+                workspace_roots: vec![PathBuf::from("project-skills")],
+                watch_for_changes: false,
+            },
             project_root_markers: vec![".workspace".into()],
         }
     );
@@ -104,6 +115,28 @@ fn loader_rejects_invalid_context_thresholds() {
     std::fs::write(
         home.join("config.toml"),
         "[context]\npreserve_recent_turns = 0\n",
+    )
+    .expect("write user config");
+
+    let loader = FileSystemAppConfigLoader::new(home);
+    let result = loader.load(None);
+
+    assert!(matches!(
+        result,
+        Err(super::AppConfigError::Validation { .. })
+    ));
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
+fn loader_rejects_duplicate_skill_roots() {
+    let root = unique_temp_dir("config-skill-roots");
+    let home = root.join("home").join(".clawcr");
+    std::fs::create_dir_all(&home).expect("home config dir");
+    std::fs::write(
+        home.join("config.toml"),
+        "[skills]\nuser_roots = ['skills', 'skills']\n",
     )
     .expect("write user config");
 

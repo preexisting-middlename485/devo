@@ -1,4 +1,8 @@
-use std::path::PathBuf;
+use std::{
+    collections::VecDeque,
+    path::PathBuf,
+    sync::{Arc, Mutex},
+};
 
 use clawcr_safety::legacy_permissions::PermissionMode;
 
@@ -44,6 +48,9 @@ pub struct SessionState {
     /// Input tokens reported by the model for the most recent turn.
     /// Used by `TokenBudget::should_compact()` to decide when to compact.
     pub last_input_tokens: usize,
+    /// User prompts queued while a turn is already running and injected before
+    /// the next model request in the same query loop.
+    pub pending_user_prompts: Arc<Mutex<VecDeque<String>>>,
 }
 
 impl SessionState {
@@ -59,6 +66,7 @@ impl SessionState {
             total_cache_creation_tokens: 0,
             total_cache_read_tokens: 0,
             last_input_tokens: 0,
+            pending_user_prompts: Arc::new(Mutex::new(VecDeque::new())),
         }
     }
 
@@ -71,6 +79,21 @@ impl SessionState {
             .iter()
             .map(|m| m.to_request_message())
             .collect()
+    }
+
+    pub fn enqueue_user_prompt(&self, prompt: String) {
+        self.pending_user_prompts
+            .lock()
+            .expect("pending user prompts mutex should not be poisoned")
+            .push_back(prompt);
+    }
+
+    pub fn drain_pending_user_prompts(&self) -> Vec<String> {
+        let mut pending = self
+            .pending_user_prompts
+            .lock()
+            .expect("pending user prompts mutex should not be poisoned");
+        pending.drain(..).collect()
     }
 }
 
@@ -123,5 +146,18 @@ mod tests {
         let s1 = SessionState::new(SessionConfig::default(), PathBuf::from("/tmp"));
         let s2 = SessionState::new(SessionConfig::default(), PathBuf::from("/tmp"));
         assert_ne!(s1.id, s2.id);
+    }
+
+    #[test]
+    fn session_state_drains_pending_user_prompts() {
+        let state = SessionState::new(SessionConfig::default(), PathBuf::from("/tmp"));
+        state.enqueue_user_prompt("first".to_string());
+        state.enqueue_user_prompt("second".to_string());
+
+        assert_eq!(
+            state.drain_pending_user_prompts(),
+            vec!["first".to_string(), "second".to_string()]
+        );
+        assert!(state.drain_pending_user_prompts().is_empty());
     }
 }

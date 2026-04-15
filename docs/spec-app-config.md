@@ -38,6 +38,7 @@ pub struct AppConfig {
     pub context: ContextManageConfig,
     pub server: ServerConfig,
     pub logging: LoggingConfig,
+    pub skills: SkillsConfig,
     pub project_root_markers: Vec<String>,
 }
 ```
@@ -95,6 +96,13 @@ pub struct LoggingFileConfig {
     pub rotation: LogRotation,
     pub max_files: usize,
 }
+
+pub struct SkillsConfig {
+    pub enabled: bool,
+    pub user_roots: Vec<PathBuf>,
+    pub workspace_roots: Vec<PathBuf>,
+    pub watch_for_changes: bool,
+}
 ```
 
 ## Partial Layer Format
@@ -110,6 +118,7 @@ pub struct AppConfigOverrides {
     pub context: Option<ContextManageOverrides>,
     pub server: Option<ServerOverrides>,
     pub logging: Option<LoggingOverrides>,
+    pub skills: Option<SkillsOverrides>,
     pub project_root_markers: Option<Vec<String>>,
 }
 ```
@@ -138,6 +147,8 @@ The loader must reject normalized configs that violate these invariants:
 - `server.listen` must not contain duplicate endpoints
 - `logging.file.max_files` must be at least 1
 - `logging.file.filename_prefix` must not be empty
+- `skills.user_roots` must not contain duplicate paths
+- `skills.workspace_roots` must not contain duplicate paths
 
 ## File Locations
 

@@ -307,6 +307,23 @@ async fn slash_sessions_in_inline_mode_opens_aux_panel() {
 }
 
 #[tokio::test]
+async fn slash_skills_requests_listing() {
+    let mut app = test_app();
+
+    app.handle_slash_command("/skills".to_string())
+        .expect("skills command should succeed");
+
+    assert_eq!(app.status_message, "Listing skills");
+    assert_eq!(
+        app.aux_panel.as_ref().map(|panel| panel.title.as_str()),
+        Some("Skills")
+    );
+    assert!(app.aux_panel.as_ref().is_some_and(
+        |panel| matches!(&panel.content, AuxPanelContent::Text(body) if body == "Loading skills...")
+    ));
+}
+
+#[tokio::test]
 async fn slash_new_requests_new_session() {
     let mut app = test_app();
 

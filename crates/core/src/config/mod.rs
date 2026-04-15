@@ -5,6 +5,7 @@ mod logging;
 mod provider;
 mod safety;
 mod server;
+mod skills;
 
 pub use app::*;
 pub use context_manage::*;
@@ -13,6 +14,7 @@ pub use logging::*;
 pub use provider::*;
 pub use safety::*;
 pub use server::*;
+pub use skills::*;
 
 #[cfg(test)]
 mod tests;

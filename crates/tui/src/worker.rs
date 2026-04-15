@@ -14,8 +14,8 @@ use clawcr_provider::{ModelProviderSDK, anthropic::AnthropicProvider, openai::Op
 use clawcr_server::{
     InputItem, ItemEnvelope, ItemEventPayload, ItemKind, ServerEvent, SessionHistoryItem,
     SessionHistoryItemKind, SessionListParams, SessionResumeParams, SessionStartParams,
-    SessionTitleUpdateParams, StdioServerClient, StdioServerClientConfig, TurnEventPayload,
-    TurnInterruptParams, TurnStartParams,
+    SessionTitleUpdateParams, SkillListParams, SkillSource, StdioServerClient,
+    StdioServerClientConfig, TurnEventPayload, TurnInterruptParams, TurnStartParams,
 };
 
 use crate::events::{SessionListEntry, TranscriptItem, TranscriptItemKind, WorkerEvent};
@@ -65,6 +65,8 @@ enum OperationCommand {
     },
     /// Request a session list from the server.
     ListSessions,
+    /// Request a skills list from the server.
+    ListSkills,
     /// Clear the active session so the next prompt starts a fresh one lazily.
     StartNewSession,
     /// Switch the active session to a persisted session identifier.
@@ -162,6 +164,13 @@ impl QueryWorkerHandle {
             .map_err(|_| anyhow::anyhow!("interactive worker is no longer running"))
     }
 
+    /// Requests the current skill list from the background worker.
+    pub(crate) fn list_skills(&self) -> Result<()> {
+        self.command_tx
+            .send(OperationCommand::ListSkills)
+            .map_err(|_| anyhow::anyhow!("interactive worker is no longer running"))
+    }
+
     /// Clears the active session so the next submitted prompt starts a fresh one lazily.
     pub(crate) fn start_new_session(&self) -> Result<()> {
         self.command_tx
@@ -246,6 +255,7 @@ async fn run_worker_inner(
     .await?;
     let _ = client.initialize().await?;
     let mut session_id: Option<SessionId> = None;
+    let mut session_cwd = config.cwd.clone();
     let mut model = config.model;
     let mut thinking_selection = config.thinking_selection;
     let mut active_turn_id: Option<TurnId> = None;
@@ -389,9 +399,41 @@ async fn run_worker_inner(
                             }
                         }
                     }
+                    Some(OperationCommand::ListSkills) => {
+                        match tokio::time::timeout(
+                            Duration::from_secs(5),
+                            client.skills_list(SkillListParams {
+                                cwd: Some(session_cwd.clone()),
+                            }),
+                        )
+                        .await
+                        {
+                            Ok(Ok(result)) => {
+                                let body = render_skill_list_body(&result.skills);
+                                let _ = event_tx.send(WorkerEvent::SkillsListed { body });
+                            }
+                            Ok(Err(error)) => {
+                                let _ = event_tx.send(WorkerEvent::TurnFailed {
+                                    message: error.to_string(),
+                                    turn_count,
+                                    total_input_tokens,
+                                    total_output_tokens,
+                                });
+                            }
+                            Err(_) => {
+                                let _ = event_tx.send(WorkerEvent::TurnFailed {
+                                    message: "skills list request timed out".to_string(),
+                                    turn_count,
+                                    total_input_tokens,
+                                    total_output_tokens,
+                                });
+                            }
+                        }
+                    }
                     Some(OperationCommand::StartNewSession) => {
                         active_turn_id = None;
                         session_id = None;
+                        session_cwd = config.cwd.clone();
                         let _ = event_tx.send(WorkerEvent::NewSessionPrepared);
                     }
                     Some(OperationCommand::SwitchSession(next_session_id)) => {
@@ -404,6 +446,7 @@ async fn run_worker_inner(
                             Ok(result) => {
                                 active_turn_id = None;
                                 session_id = Some(next_session_id);
+                                session_cwd = result.session.cwd.clone();
                                 let _ = event_tx.send(WorkerEvent::SessionSwitched {
                                     session_id: next_session_id.to_string(),
                                     title: result.session.title,
@@ -649,6 +692,35 @@ fn apply_optional_env_override(env: &mut Vec<(String, String)>, key: &str, value
     match value {
         Some(value) => apply_env_override(env, key, &value),
         None => env.retain(|(existing_key, _)| existing_key != key),
+    }
+}
+
+fn render_skill_list_body(skills: &[clawcr_server::SkillRecord]) -> String {
+    if skills.is_empty() {
+        return "No skills found".to_string();
+    }
+
+    skills
+        .iter()
+        .map(|skill| {
+            let status = if skill.enabled { "enabled" } else { "disabled" };
+            format!(
+                "{} ({status})\n{}\nsource: {}\npath: {}",
+                skill.name,
+                skill.description,
+                render_skill_source(&skill.source),
+                skill.path.display()
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n\n")
+}
+
+fn render_skill_source(source: &SkillSource) -> String {
+    match source {
+        SkillSource::User => "user".to_string(),
+        SkillSource::Workspace { cwd } => format!("workspace ({})", cwd.display()),
+        SkillSource::Plugin { plugin_id } => format!("plugin ({plugin_id})"),
     }
 }
 

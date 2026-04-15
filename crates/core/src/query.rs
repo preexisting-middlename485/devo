@@ -341,7 +341,11 @@ pub async fn query(
     let mut context_compacted = false;
 
     loop {
-        // Check token budget and compact before building the request
+        for prompt in session.drain_pending_user_prompts() {
+            session.push_message(Message::user(prompt));
+        }
+
+        // 1.3 + 1.7: Check token budget and compact before building the request
         if session.last_input_tokens > 0
             && session
                 .config

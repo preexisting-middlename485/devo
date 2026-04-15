@@ -5,6 +5,7 @@ use clawcr_core::{
     ItemId, SessionId, SessionRecord, SessionTitleFinalSource, SessionTitleState, TurnId,
     TurnRecord, TurnStatus,
 };
+use clawcr_protocol::{SkillChangedParams, SkillListParams, SkillListResult};
 use clawcr_server::{
     ActiveTurnSteeringState, ApprovalDecisionValue, ApprovalRequestPayload, ApprovalRespondParams,
     ApprovalScopeValue, ClientRequest, ClientTransportKind, DefaultProjection, EventContext,
@@ -13,6 +14,7 @@ use clawcr_server::{
     SessionProjector, SessionRuntimeStatus, SessionSummary, SessionTitleUpdateParams,
     SteerInputRecord, TurnKind, TurnProjector,
 };
+use pretty_assertions::assert_eq;
 
 #[test]
 fn initialize_params_roundtrip() {
@@ -28,6 +30,52 @@ fn initialize_params_roundtrip() {
     let json = serde_json::to_string(&params).expect("serialize");
     let restored: InitializeParams = serde_json::from_str(&json).expect("deserialize");
     assert_eq!(params, restored);
+}
+
+#[test]
+fn skill_list_params_roundtrip() {
+    let params = SkillListParams { cwd: None };
+    let json = serde_json::to_string(&params).expect("serialize");
+    let restored: SkillListParams = serde_json::from_str(&json).expect("deserialize");
+    assert_eq!(params, restored);
+}
+
+#[test]
+fn skill_changed_params_roundtrip() {
+    let params = SkillChangedParams { cwd: None };
+    let json = serde_json::to_string(&params).expect("serialize");
+    let restored: SkillChangedParams = serde_json::from_str(&json).expect("deserialize");
+    assert_eq!(params, restored);
+}
+
+#[test]
+fn skill_list_result_serializes_expected_shape() {
+    let result = SkillListResult {
+        skills: vec![
+            clawcr_protocol::SkillRecord {
+                id: "rust-docs".into(),
+                name: "Rust Documentation".into(),
+                description: "Official Rust docs skill".into(),
+                path: std::path::PathBuf::from("/skills/rust/SKILL.md"),
+                enabled: true,
+                source: clawcr_protocol::SkillSource::User,
+            },
+            clawcr_protocol::SkillRecord {
+                id: "python-guide".into(),
+                name: "Python Guide".into(),
+                description: "Python programming skill".into(),
+                path: std::path::PathBuf::from("/skills/python/SKILL.md"),
+                enabled: false,
+                source: clawcr_protocol::SkillSource::Workspace {
+                    cwd: std::path::PathBuf::from("/workspace"),
+                },
+            },
+        ],
+    };
+
+    let json = serde_json::to_string(&result).expect("serialize");
+    assert!(json.contains("\"skills\""));
+    assert!(json.contains("\"rust-docs\""));
 }
 
 #[test]

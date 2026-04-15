@@ -25,14 +25,16 @@ use crate::{
     SessionEventPayload, SessionForkParams, SessionForkResult, SessionListParams,
     SessionListResult, SessionResumeParams, SessionResumeResult, SessionRuntimeStatus,
     SessionStartParams, SessionStartResult, SessionStatusChangedPayload, SessionTitleUpdateParams,
-    SessionTitleUpdateResult, SteerInputRecord, SuccessResponse, TurnEventPayload,
-    TurnInterruptParams, TurnInterruptResult, TurnStartParams, TurnStartResult, TurnSteerParams,
-    TurnSteerResult, TurnSummary, TurnUsageUpdatedPayload,
+    SessionTitleUpdateResult, SuccessResponse, TurnEventPayload, TurnInterruptParams,
+    TurnInterruptResult, TurnStartParams, TurnStartResult, TurnSteerParams, TurnSteerResult,
+    TurnSummary, TurnUsageUpdatedPayload,
     execution::{RuntimeSession, ServerRuntimeDependencies},
     persistence::{RolloutStore, build_item_record, build_turn_record},
     projection::history_item_from_turn_item,
     titles::{build_title_generation_request, derive_provisional_title, normalize_generated_title},
 };
+
+mod skills;
 
 pub struct ServerRuntime {
     metadata: InitializeResult,
@@ -166,6 +168,8 @@ impl ServerRuntime {
             "session/title/update" => Some(self.handle_session_title_update(id?, params).await),
             "session/resume" => Some(self.handle_session_resume(connection_id, id?, params).await),
             "session/fork" => Some(self.handle_session_fork(connection_id, id?, params).await),
+            "skills/list" => Some(self.handle_skills_list(id?, params).await),
+            "skills/changed" => Some(self.handle_skills_changed(id?, params).await),
             "turn/start" => Some(self.handle_turn_start(id?, params).await),
             "turn/interrupt" => Some(self.handle_turn_interrupt(id?, params).await),
             "turn/steer" => Some(self.handle_turn_steer(connection_id, id?, params).await),
@@ -287,19 +291,19 @@ impl ServerRuntime {
                 );
             }
         }
+        let core_session = self.deps.new_session_state(session_id, params.cwd.clone());
+        let steering_queue = Arc::clone(&core_session.pending_user_prompts);
         self.sessions.lock().await.insert(
             session_id,
             RuntimeSession {
                 record,
                 summary: summary.clone(),
-                core_session: Arc::new(Mutex::new(
-                    self.deps.new_session_state(session_id, params.cwd.clone()),
-                )),
+                core_session: Arc::new(Mutex::new(core_session)),
                 active_turn: None,
                 latest_turn: None,
                 loaded_item_count: 0,
                 history_items: Vec::new(),
-                steering_queue: std::collections::VecDeque::new(),
+                steering_queue,
                 active_task: None,
                 next_item_seq: 1,
             }
@@ -546,6 +550,7 @@ impl ServerRuntime {
         let history_items = source.history_items.clone();
         drop(source_core_session);
         drop(source);
+        let steering_queue = Arc::clone(&core_session.pending_user_prompts);
         self.sessions.lock().await.insert(
             forked_id,
             RuntimeSession {
@@ -556,7 +561,7 @@ impl ServerRuntime {
                 latest_turn,
                 loaded_item_count,
                 history_items,
-                steering_queue: std::collections::VecDeque::new(),
+                steering_queue,
                 active_task: None,
                 next_item_seq: loaded_item_count + 1,
             }
@@ -635,7 +640,7 @@ impl ServerRuntime {
                 "turn input is empty",
             );
         }
-        let Some(input_text) = render_input_items(&params.input) else {
+        let Some(display_input) = render_input_items(&params.input) else {
             return self.error_response(
                 request_id,
                 ProtocolErrorCode::EmptyInput,
@@ -647,6 +652,43 @@ impl ServerRuntime {
                 request_id,
                 ProtocolErrorCode::SessionNotFound,
                 "session does not exist",
+            );
+        };
+        let workspace_root = {
+            let session = session_arc.lock().await;
+            params
+                .cwd
+                .clone()
+                .unwrap_or_else(|| session.summary.cwd.clone())
+        };
+        let Some(input_text) = (match self
+            .deps
+            .resolve_input_items(&params.input, Some(workspace_root.as_path()))
+        {
+            Ok(input_text) => input_text,
+            Err(error) => {
+                let code = match error {
+                    clawcr_core::SkillError::SkillNotFound { .. }
+                    | clawcr_core::SkillError::SkillDisabled { .. } => {
+                        ProtocolErrorCode::InvalidParams
+                    }
+                    clawcr_core::SkillError::SkillParseFailed { .. }
+                    | clawcr_core::SkillError::SkillRootUnavailable { .. }
+                    | clawcr_core::SkillError::DuplicateSkillId { .. } => {
+                        ProtocolErrorCode::InternalError
+                    }
+                };
+                return self.error_response(
+                    request_id,
+                    code,
+                    format!("failed to resolve turn input: {error}"),
+                );
+            }
+        }) else {
+            return self.error_response(
+                request_id,
+                ProtocolErrorCode::EmptyInput,
+                "turn input is empty",
             );
         };
 
@@ -691,9 +733,14 @@ impl ServerRuntime {
             session.summary.status = SessionRuntimeStatus::ActiveTurn;
             session.summary.updated_at = now;
             session.active_turn = Some(turn.clone());
-            session.steering_queue.clear();
+            session
+                .steering_queue
+                .lock()
+                .expect("steering queue mutex should not be poisoned")
+                .clear();
             let runtime = Arc::clone(self);
             let turn_for_task = turn.clone();
+            let display_input_for_task = display_input.clone();
             let input_for_task = input_text.clone();
             let turn_config_for_task = turn_config.clone();
             let task = tokio::spawn(async move {
@@ -702,6 +749,7 @@ impl ServerRuntime {
                         params.session_id,
                         turn_for_task,
                         turn_config_for_task,
+                        display_input_for_task,
                         input_for_task,
                     )
                     .await;
@@ -712,7 +760,7 @@ impl ServerRuntime {
                 .insert(params.session_id, task.abort_handle());
             turn
         };
-        self.maybe_assign_provisional_title(params.session_id, &input_text)
+        self.maybe_assign_provisional_title(params.session_id, &display_input)
             .await;
         if let Some(record) = session_arc.lock().await.record.clone() {
             if let Err(error) = self
@@ -888,6 +936,13 @@ impl ServerRuntime {
                 "turn steer input is empty",
             );
         }
+        let Some(display_input) = render_input_items(&params.input) else {
+            return self.error_response(
+                request_id,
+                ProtocolErrorCode::EmptyInput,
+                "turn steer input is empty",
+            );
+        };
         let Some(session_arc) = self.sessions.lock().await.get(&params.session_id).cloned() else {
             return self.error_response(
                 request_id,
@@ -895,8 +950,8 @@ impl ServerRuntime {
                 "session does not exist",
             );
         };
-        let turn_id = {
-            let mut session = session_arc.lock().await;
+        let (turn_id, workspace_root, steering_queue) = {
+            let session = session_arc.lock().await;
             let Some(turn_id) = session.active_turn.as_ref().map(|turn| turn.turn_id) else {
                 return self.error_response(
                     request_id,
@@ -911,13 +966,58 @@ impl ServerRuntime {
                     "active turn did not match expectedTurnId",
                 );
             }
-            session.steering_queue.push_back(SteerInputRecord {
-                item_id: ItemId::new(),
-                received_at: Utc::now(),
-                input: params.input,
-            });
-            turn_id
+            (
+                turn_id,
+                session.summary.cwd.clone(),
+                Arc::clone(&session.steering_queue),
+            )
         };
+        let prompt_text = match self
+            .deps
+            .resolve_input_items(&params.input, Some(workspace_root.as_path()))
+        {
+            Ok(Some(input_text)) => input_text,
+            Ok(None) => {
+                return self.error_response(
+                    request_id,
+                    ProtocolErrorCode::EmptyInput,
+                    "turn steer input is empty",
+                );
+            }
+            Err(error) => {
+                let code = match error {
+                    clawcr_core::SkillError::SkillNotFound { .. }
+                    | clawcr_core::SkillError::SkillDisabled { .. } => {
+                        ProtocolErrorCode::InvalidParams
+                    }
+                    clawcr_core::SkillError::SkillParseFailed { .. }
+                    | clawcr_core::SkillError::SkillRootUnavailable { .. }
+                    | clawcr_core::SkillError::DuplicateSkillId { .. } => {
+                        ProtocolErrorCode::InternalError
+                    }
+                };
+                return self.error_response(
+                    request_id,
+                    code,
+                    format!("failed to resolve turn steer input: {error}"),
+                );
+            }
+        };
+
+        self.emit_turn_item(
+            params.session_id,
+            turn_id,
+            ItemKind::UserMessage,
+            TurnItem::SteerInput(TextItem {
+                text: display_input.clone(),
+            }),
+            serde_json::json!({ "title": "You", "text": display_input }),
+        )
+        .await;
+        steering_queue
+            .lock()
+            .expect("steering queue mutex should not be poisoned")
+            .push_back(prompt_text);
 
         self.emit_to_connection(
             connection_id,
@@ -933,7 +1033,7 @@ impl ServerRuntime {
             connection_id,
             session_id = %params.session_id,
             turn_id = %turn_id,
-            input_items = 1,
+            input_items = params.input.len(),
             "accepted turn steer request"
         );
         serde_json::to_value(SuccessResponse {
@@ -979,6 +1079,7 @@ impl ServerRuntime {
         session_id: SessionId,
         turn: TurnSummary,
         turn_config: TurnConfig,
+        display_input: String,
         input: String,
     ) {
         self.emit_text_item(
@@ -986,10 +1087,10 @@ impl ServerRuntime {
             turn.turn_id,
             ItemKind::UserMessage,
             TurnItem::UserMessage(TextItem {
-                text: input.clone(),
+                text: display_input.clone(),
             }),
             "You",
-            input.clone(),
+            display_input.clone(),
         )
         .await;
 
@@ -1341,7 +1442,7 @@ impl ServerRuntime {
         if final_turn.status == TurnStatus::Completed {
             if let Some(first_assistant_reply) = first_assistant_reply {
                 let runtime = Arc::clone(&self);
-                let input_for_title = input.clone();
+                let input_for_title = display_input.clone();
                 tokio::spawn(async move {
                     runtime
                         .maybe_generate_final_title(

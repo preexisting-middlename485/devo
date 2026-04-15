@@ -9,6 +9,7 @@ mod query;
 mod session;
 mod skills;
 
+#[allow(ambiguous_glob_reexports)]
 pub use clawcr_protocol::*;
 pub use clawcr_protocol::{ContentBlock, Message, Role};
 pub use config::*;

@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use clawcr_utils::FileSystemConfigPathResolver;
 
+use crate::SkillsConfig;
 use crate::config::{
     AppConfigError, ContextManageConfig, LogRotation, LoggingConfig, LoggingFileConfig,
     SafetyPolicyModelSelection, ServerConfig,
@@ -26,6 +27,8 @@ pub struct AppConfig {
     pub server: ServerConfig,
     /// Logging and redaction behavior for diagnostics.
     pub logging: LoggingConfig,
+    /// Skill discovery roots and behavior.
+    pub skills: SkillsConfig,
     /// TODO: Not sure what's purpose of `project_root_markers`?
     /// Marker names used when discovering a project root.
     pub project_root_markers: Vec<String>,
@@ -88,6 +91,12 @@ impl Default for AppConfig {
                     rotation: LogRotation::Daily,
                     max_files: 14,
                 },
+            },
+            skills: SkillsConfig {
+                enabled: true,
+                user_roots: vec![PathBuf::from("skills")],
+                workspace_roots: vec![PathBuf::from("skills")],
+                watch_for_changes: true,
             },
             project_root_markers: vec![".git".into()],
         }
@@ -225,6 +234,30 @@ fn validate_app_config(config: &AppConfig) -> Result<(), AppConfigError> {
     if config.logging.file.filename_prefix.trim().is_empty() {
         return Err(AppConfigError::Validation {
             message: "logging.file.filename_prefix must not be empty".into(),
+        });
+    }
+
+    let mut seen_skill_roots = HashSet::new();
+    if config
+        .skills
+        .user_roots
+        .iter()
+        .any(|root| !seen_skill_roots.insert(root))
+    {
+        return Err(AppConfigError::Validation {
+            message: "skills.user_roots must not contain duplicate paths".into(),
+        });
+    }
+
+    seen_skill_roots.clear();
+    if config
+        .skills
+        .workspace_roots
+        .iter()
+        .any(|root| !seen_skill_roots.insert(root))
+    {
+        return Err(AppConfigError::Validation {
+            message: "skills.workspace_roots must not contain duplicate paths".into(),
         });
     }
 

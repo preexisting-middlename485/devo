@@ -8,7 +8,7 @@ use tempfile::TempDir;
 use tokio::sync::mpsc;
 use tokio::time::{Duration, timeout};
 
-use clawcr_core::PresetModelCatalog;
+use clawcr_core::{FileSystemSkillCatalog, PresetModelCatalog, SkillsConfig};
 use clawcr_protocol::{
     ModelRequest, ModelResponse, ResponseContent, ResponseMetadata, StopReason, StreamEvent, Usage,
 };
@@ -384,6 +384,8 @@ fn build_runtime(data_root: &std::path::Path) -> Result<Arc<ServerRuntime>> {
             Arc::new(ToolRegistry::new()),
             "test-model".to_string(),
             Arc::new(PresetModelCatalog::default()),
+            None,
+            Box::new(FileSystemSkillCatalog::new(SkillsConfig::default())),
         ),
     ))
 }

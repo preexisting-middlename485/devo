@@ -144,6 +144,11 @@ pub(crate) enum WorkerEvent {
         /// Structured sessions rendered into the bottom picker panel.
         sessions: Vec<SessionListEntry>,
     },
+    /// Current known skills were listed from the server.
+    SkillsListed {
+        /// Pre-rendered skill summary shown in the bottom panel.
+        body: String,
+    },
     /// The interactive client cleared its active session and is waiting for the next prompt.
     NewSessionPrepared,
     /// The active session changed.

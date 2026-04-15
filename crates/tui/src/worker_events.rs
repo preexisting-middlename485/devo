@@ -252,6 +252,11 @@ impl TuiApp {
                 }
                 self.status_message = "Sessions loaded".to_string();
             }
+            WorkerEvent::SkillsListed { body } => {
+                self.close_inline_assistant_stream();
+                self.show_aux_panel("Skills", body);
+                self.status_message = "Skills loaded".to_string();
+            }
             WorkerEvent::NewSessionPrepared => {
                 self.close_inline_assistant_stream();
                 self.aux_panel = None;

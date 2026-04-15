@@ -180,6 +180,38 @@ Response fields:
 - `session`
 - `forkedFromSessionId`
 
+## Skills Methods
+
+### `skills/list`
+
+Request fields:
+
+- none
+
+Response fields:
+
+- `skills`
+
+Rules:
+
+- returns the currently discovered user and workspace skills
+- skill records include `id`, `name`, `description`, `path`, `enabled`, and `source`
+
+### `skills/changed`
+
+Request fields:
+
+- none
+
+Response fields:
+
+- `skills`
+
+Rules:
+
+- re-runs skill discovery and returns the latest skill snapshot
+- this method is poll-style for now; it does not require filesystem watch support
+
 ## Turn Methods
 
 ### `turn/start`

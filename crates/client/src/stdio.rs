@@ -14,8 +14,9 @@ use clawcr_protocol::{
     InitializeResult, NotificationEnvelope, ProtocolErrorCode, ServerEvent, SessionForkParams,
     SessionForkResult, SessionListParams, SessionListResult, SessionResumeParams,
     SessionResumeResult, SessionStartParams, SessionStartResult, SessionTitleUpdateParams,
-    SessionTitleUpdateResult, SuccessResponse, TurnInterruptParams, TurnInterruptResult,
-    TurnStartParams, TurnStartResult, TurnSteerParams, TurnSteerResult,
+    SessionTitleUpdateResult, SkillChangedParams, SkillChangedResult, SkillListParams,
+    SkillListResult, SuccessResponse, TurnInterruptParams, TurnInterruptResult, TurnStartParams,
+    TurnStartResult, TurnSteerParams, TurnSteerResult,
 };
 use serde::de::DeserializeOwned;
 use tokio::{
@@ -147,6 +148,17 @@ impl StdioServerClient {
 
     pub async fn session_fork(&mut self, params: SessionForkParams) -> Result<SessionForkResult> {
         self.request("session/fork", params).await
+    }
+
+    pub async fn skills_list(&mut self, params: SkillListParams) -> Result<SkillListResult> {
+        self.request("skills/list", params).await
+    }
+
+    pub async fn skills_changed(
+        &mut self,
+        params: SkillChangedParams,
+    ) -> Result<SkillChangedResult> {
+        self.request("skills/changed", params).await
     }
 
     pub async fn turn_start(&mut self, params: TurnStartParams) -> Result<TurnStartResult> {

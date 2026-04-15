@@ -309,6 +309,13 @@ impl TuiApp {
                 self.worker.list_sessions()?;
                 Ok(())
             }
+            "/skills" => {
+                self.emit_inline_command_echo(trimmed);
+                self.show_aux_panel("Skills", "Loading skills...");
+                self.status_message = "Listing skills".to_string();
+                self.worker.list_skills()?;
+                Ok(())
+            }
             "/thinking" => {
                 self.emit_inline_command_echo(trimmed);
                 self.show_thinking_panel();

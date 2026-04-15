@@ -345,7 +345,9 @@ impl ReplayState {
             latest_turn: self.latest_turn_summary,
             loaded_item_count: self.loaded_item_count,
             history_items: replayed_history_items,
-            steering_queue: std::collections::VecDeque::new(),
+            steering_queue: std::sync::Arc::new(std::sync::Mutex::new(
+                std::collections::VecDeque::new(),
+            )),
             active_task: None,
             next_item_seq: self.next_item_seq.max(1),
         })

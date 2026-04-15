@@ -1,17 +1,22 @@
-use std::{collections::VecDeque, path::PathBuf, sync::Arc};
+use std::{
+    collections::VecDeque,
+    path::{Path, PathBuf},
+    sync::{Arc, Mutex as StdMutex},
+};
 
 use tokio::{sync::Mutex, task::JoinHandle};
 
 use clawcr_core::{
-    Model, ModelCatalog, SessionConfig, SessionId, SessionRecord, SessionState, TurnConfig,
-    default_base_instructions,
+    Model, ModelCatalog, ResolvedSkill, SessionConfig, SessionId, SessionRecord, SessionState,
+    SkillCatalog, SkillError, SkillId, TurnConfig, default_base_instructions,
 };
 use clawcr_provider::ModelProviderSDK;
 use clawcr_tools::ToolRegistry;
 
 use crate::{
+    InputItem, SkillRecord,
     session::{SessionHistoryItem, SessionSummary},
-    turn::{SteerInputRecord, TurnSummary},
+    turn::TurnSummary,
 };
 
 /// Shared server-owned runtime dependencies used by live turn execution.
@@ -24,6 +29,10 @@ pub struct ServerRuntimeDependencies {
     pub(crate) default_model: String,
     /// Model catalog used to resolve builtin prompt metadata.
     pub(crate) model_catalog: Arc<dyn ModelCatalog>,
+    /// Default workspace root used for workspace-scoped skill discovery.
+    pub(crate) skill_workspace_root: Option<PathBuf>,
+    /// Skill catalog for discovering and loading skills.
+    pub(crate) skill_catalog: StdMutex<Box<dyn SkillCatalog + Send>>,
 }
 
 impl ServerRuntimeDependencies {
@@ -33,12 +42,16 @@ impl ServerRuntimeDependencies {
         registry: Arc<ToolRegistry>,
         default_model: String,
         model_catalog: Arc<dyn ModelCatalog>,
+        skill_workspace_root: Option<PathBuf>,
+        skill_catalog: Box<dyn SkillCatalog + Send>,
     ) -> Self {
         Self {
             provider,
             registry,
             default_model,
             model_catalog,
+            skill_workspace_root,
+            skill_catalog: StdMutex::new(skill_catalog),
         }
     }
 
@@ -78,6 +91,84 @@ impl ServerRuntimeDependencies {
             thinking_selection,
         }
     }
+
+    /// Returns the current skill catalog snapshot for one optional workspace root.
+    pub(crate) fn discover_skills(
+        &self,
+        workspace_root: Option<&Path>,
+    ) -> Result<Vec<SkillRecord>, SkillError> {
+        let workspace_root = workspace_root.or(self.skill_workspace_root.as_deref());
+        let mut skill_catalog = self
+            .skill_catalog
+            .lock()
+            .expect("skill catalog mutex should not be poisoned");
+        skill_catalog.discover(workspace_root).map(|skills| {
+            skills
+                .into_iter()
+                .map(|record| SkillRecord {
+                    id: record.id.0.to_string(),
+                    name: record.name,
+                    description: record.description,
+                    path: record.path,
+                    enabled: record.enabled,
+                    source: serde_json::from_value(
+                        serde_json::to_value(record.source)
+                            .expect("core skill source should serialize"),
+                    )
+                    .expect("protocol skill source should deserialize"),
+                })
+                .collect()
+        })
+    }
+
+    /// Renders turn input items and resolves any referenced skills into prompt-visible text.
+    pub(crate) fn resolve_input_items(
+        &self,
+        input: &[InputItem],
+        workspace_root: Option<&Path>,
+    ) -> Result<Option<String>, SkillError> {
+        let workspace_root = workspace_root.or(self.skill_workspace_root.as_deref());
+        let mut skill_catalog = self
+            .skill_catalog
+            .lock()
+            .expect("skill catalog mutex should not be poisoned");
+        if input
+            .iter()
+            .any(|item| matches!(item, InputItem::Skill { .. }))
+        {
+            skill_catalog.discover(workspace_root)?;
+        }
+
+        let parts = input
+            .iter()
+            .map(|item| match item {
+                InputItem::Text { text } => Ok(text.trim().to_string()),
+                InputItem::Skill { id } => skill_catalog
+                    .load(&SkillId(id.clone().into()))
+                    .map(|skill| render_resolved_skill(&skill)),
+                InputItem::LocalImage { path } => Ok(format!("[image:{}]", path.display())),
+                InputItem::Mention { path, name } => Ok(format!(
+                    "[mention:{}]",
+                    name.as_deref().unwrap_or(path.as_str())
+                )),
+            })
+            .collect::<Result<Vec<_>, _>>()?
+            .into_iter()
+            .filter(|text| !text.is_empty())
+            .collect::<Vec<_>>();
+        Ok((!parts.is_empty()).then(|| parts.join("\n")))
+    }
+}
+
+fn render_resolved_skill(skill: &ResolvedSkill) -> String {
+    let base_dir = skill.record.path.parent().unwrap_or_else(|| Path::new(""));
+    format!(
+        "<skill id=\"{}\" name=\"{}\">\n{}\n\nBase directory: {}\n</skill>",
+        skill.record.id.0,
+        skill.record.name,
+        skill.content.trim_end(),
+        base_dir.display()
+    )
 }
 
 /// Mutable per-session runtime state owned by the server.
@@ -97,7 +188,7 @@ pub(crate) struct RuntimeSession {
     /// Replay-friendly ordered history used by interactive clients during session resume.
     pub(crate) history_items: Vec<SessionHistoryItem>,
     /// Pending same-turn steering inputs.
-    pub(crate) steering_queue: VecDeque<SteerInputRecord>,
+    pub(crate) steering_queue: Arc<StdMutex<VecDeque<String>>>,
     /// Live query task for the active turn.
     pub(crate) active_task: Option<JoinHandle<()>>,
     /// Monotonic session-scoped item sequence counter.

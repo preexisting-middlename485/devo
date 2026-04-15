@@ -3,7 +3,10 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use clap::Parser;
-use clawcr_core::{AppConfigLoader, FileSystemAppConfigLoader, ModelCatalog, PresetModelCatalog};
+use clawcr_core::{
+    AppConfigLoader, FileSystemAppConfigLoader, FileSystemSkillCatalog, ModelCatalog,
+    PresetModelCatalog, SkillsConfig,
+};
 use clawcr_tools::ToolRegistry;
 use clawcr_utils::FileSystemConfigPathResolver;
 
@@ -53,6 +56,42 @@ pub async fn run_server_process(args: ServerProcessArgs) -> Result<()> {
     clawcr_tools::register_builtin_tools(&mut registry);
     let provider = load_server_provider(&resolver.user_config_file(), None)?;
     let model_catalog: Arc<dyn ModelCatalog> = Arc::new(PresetModelCatalog::load()?);
+    let skill_workspace_root = args.working_root.clone();
+    let project_skill_base = skill_workspace_root
+        .as_deref()
+        .map(|root| resolver.project_config_dir(root));
+    let user_skill_roots = config
+        .skills
+        .user_roots
+        .iter()
+        .cloned()
+        .map(|root| {
+            if root.is_absolute() {
+                root
+            } else {
+                resolver.user_config_dir().join(root)
+            }
+        })
+        .collect();
+    let workspace_skill_roots = config
+        .skills
+        .workspace_roots
+        .iter()
+        .cloned()
+        .filter_map(|root| {
+            if root.is_absolute() {
+                Some(root)
+            } else {
+                project_skill_base.as_ref().map(|base| base.join(root))
+            }
+        })
+        .collect();
+    let skill_catalog = Box::new(FileSystemSkillCatalog::new(SkillsConfig {
+        enabled: config.skills.enabled,
+        user_roots: user_skill_roots,
+        workspace_roots: workspace_skill_roots,
+        watch_for_changes: config.skills.watch_for_changes,
+    }));
     let runtime = ServerRuntime::new(
         resolver.user_config_dir(),
         ServerRuntimeDependencies::new(
@@ -60,6 +99,8 @@ pub async fn run_server_process(args: ServerProcessArgs) -> Result<()> {
             Arc::new(registry),
             provider.default_model,
             model_catalog,
+            skill_workspace_root,
+            skill_catalog,
         ),
     );
     tracing::info!("starting persisted session restore");

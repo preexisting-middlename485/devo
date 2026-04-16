@@ -1,22 +1,23 @@
-use std::{collections::HashMap, pin::Pin};
+use std::pin::Pin;
 
 use anyhow::{Context, Result};
 use async_trait::async_trait;
-use futures::{Stream, StreamExt};
+use futures::Stream;
 use reqwest::Client;
 use reqwest::header::{AUTHORIZATION, CONTENT_TYPE};
-use reqwest_eventsource::{Event, EventSource};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use tracing::debug;
+mod stream;
+use clawcr_protocol::{
+    ModelRequest, ModelResponse, ProviderFamily, RequestContent, ResponseContent, ResponseExtra,
+    ResponseMetadata, StopReason, StreamEvent, Usage,
+};
 
 use super::capabilities::{OpenAIReasoningMode, OpenAITransport, resolve_request_profile};
 use super::shared::{reasoning_value, request_role, tool_definitions};
-use crate::{
-    ModelProviderSDK, ModelRequest, ModelResponse, ProviderAdapter, ProviderCapabilities,
-    ProviderFamily, RequestContent, ResponseContent, ResponseExtra, ResponseMetadata, StopReason,
-    StreamEvent, Usage, merge_extra_body,
-};
+use crate::text_normalization::split_tagged_text;
+use crate::{ModelProviderSDK, ProviderAdapter, ProviderCapabilities, merge_extra_body};
 
 /// OpenAI chat-completion provider backed by the official HTTP API.
 /// <https://developers.openai.com/api/reference/chat-completions/overview>
@@ -60,7 +61,7 @@ impl OpenAIProvider {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
-struct OpenAIChatCompletionResponse {
+pub(super) struct OpenAIChatCompletionResponse {
     id: String,
     #[serde(default)]
     choices: Vec<OpenAIChatCompletionChoice>,
@@ -79,7 +80,7 @@ struct OpenAIChatCompletionResponse {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
-struct OpenAIChatCompletionChoice {
+pub(super) struct OpenAIChatCompletionChoice {
     #[serde(default)]
     finish_reason: Option<String>,
     #[serde(default)]
@@ -91,7 +92,7 @@ struct OpenAIChatCompletionChoice {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
-struct OpenAIChoiceLogprobs {
+pub(super) struct OpenAIChoiceLogprobs {
     #[serde(default)]
     content: Vec<OpenAIChatCompletionTokenLogprob>,
     #[serde(default)]
@@ -99,7 +100,7 @@ struct OpenAIChoiceLogprobs {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
-struct OpenAIChatCompletionTokenLogprob {
+pub(super) struct OpenAIChatCompletionTokenLogprob {
     token: String,
     #[serde(default)]
     bytes: Option<Vec<u8>>,
@@ -109,7 +110,7 @@ struct OpenAIChatCompletionTokenLogprob {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
-struct OpenAIChatCompletionTopLogprob {
+pub(super) struct OpenAIChatCompletionTopLogprob {
     token: String,
     #[serde(default)]
     bytes: Option<Vec<u8>>,
@@ -117,7 +118,7 @@ struct OpenAIChatCompletionTopLogprob {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
-struct OpenAIChatCompletionMessage {
+pub(super) struct OpenAIChatCompletionMessage {
     #[serde(default)]
     content: Option<String>,
     #[serde(default)]
@@ -137,7 +138,7 @@ struct OpenAIChatCompletionMessage {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
-struct OpenAIChatCompletionAnnotation {
+pub(super) struct OpenAIChatCompletionAnnotation {
     #[serde(rename = "type", default)]
     kind: Option<String>,
     #[serde(default)]
@@ -145,7 +146,7 @@ struct OpenAIChatCompletionAnnotation {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
-struct OpenAIChatCompletionUrlCitation {
+pub(super) struct OpenAIChatCompletionUrlCitation {
     #[serde(default)]
     end_index: Option<u64>,
     #[serde(default)]
@@ -157,7 +158,7 @@ struct OpenAIChatCompletionUrlCitation {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
-struct OpenAIChatCompletionAudio {
+pub(super) struct OpenAIChatCompletionAudio {
     id: String,
     data: String,
     expires_at: u64,
@@ -165,13 +166,13 @@ struct OpenAIChatCompletionAudio {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
-struct OpenAIChatCompletionFunctionCall {
+pub(super) struct OpenAIChatCompletionFunctionCall {
     arguments: String,
     name: String,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
-struct OpenAIChatCompletionMessageToolCall {
+pub(super) struct OpenAIChatCompletionMessageToolCall {
     id: String,
     #[serde(rename = "type")]
     kind: String,
@@ -182,13 +183,13 @@ struct OpenAIChatCompletionMessageToolCall {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
-struct OpenAIChatCompletionCustomToolCall {
+pub(super) struct OpenAIChatCompletionCustomToolCall {
     input: String,
     name: String,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
-struct OpenAICompletionUsage {
+pub(super) struct OpenAICompletionUsage {
     prompt_tokens: usize,
     completion_tokens: usize,
     #[serde(default)]
@@ -200,7 +201,7 @@ struct OpenAICompletionUsage {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
-struct OpenAIPromptTokenDetails {
+pub(super) struct OpenAIPromptTokenDetails {
     #[serde(default)]
     audio_tokens: Option<usize>,
     #[serde(default)]
@@ -208,7 +209,7 @@ struct OpenAIPromptTokenDetails {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
-struct OpenAICompletionTokenDetails {
+pub(super) struct OpenAICompletionTokenDetails {
     #[serde(default)]
     accepted_prediction_tokens: Option<usize>,
     #[serde(default)]
@@ -730,8 +731,14 @@ fn parse_response(value: Value) -> Result<ModelResponse> {
                 });
             }
             if let Some(text) = &message.content {
-                if !text.is_empty() {
-                    content.push(ResponseContent::Text(text.clone()));
+                let (assistant_text, reasoning) = split_tagged_text(text);
+                for text in reasoning {
+                    if !text.is_empty() {
+                        metadata.extras.push(ResponseExtra::ReasoningText { text });
+                    }
+                }
+                if !assistant_text.is_empty() {
+                    content.push(ResponseContent::Text(assistant_text));
                 }
             }
             for tool_call in &message.tool_calls {
@@ -775,7 +782,9 @@ fn parse_response(value: Value) -> Result<ModelResponse> {
     })
 }
 
-fn parse_tool_use(value: &OpenAIChatCompletionMessageToolCall) -> Option<ResponseContent> {
+pub(super) fn parse_tool_use(
+    value: &OpenAIChatCompletionMessageToolCall,
+) -> Option<ResponseContent> {
     match value.kind.as_str() {
         "function" => {
             let function = value.function.as_ref()?;
@@ -799,7 +808,7 @@ fn parse_tool_use(value: &OpenAIChatCompletionMessageToolCall) -> Option<Respons
     }
 }
 
-fn build_provider_specific_response_payload(
+pub(super) fn build_provider_specific_response_payload(
     response: &OpenAIChatCompletionResponse,
 ) -> Option<Value> {
     let mut payload = serde_json::Map::new();
@@ -952,6 +961,7 @@ fn build_provider_specific_message_payload(message: &OpenAIChatCompletionMessage
 ///   }
 /// }
 /// ```
+#[allow(dead_code)]
 fn parse_usage(value: &Value) -> Option<Usage> {
     let usage: OpenAICompletionUsage = serde_json::from_value(value.clone()).ok()?;
     Some(Usage {
@@ -1005,167 +1015,18 @@ impl ModelProviderSDK for OpenAIProvider {
         parse_response(value)
     }
 
+    /// --------- Here is an example of stream response ------------------------
+    /// ```text
+    /// {"id":"chatcmpl-123","object":"chat.completion.chunk","created":1694268190,"model":"gpt-4o-mini", "system_fingerprint": "fp_44709d6fcb", "choices":[{"index":0,"delta":{"role":"assistant","content":""},"logprobs":null,"finish_reason":null}]}
+    /// {"id":"chatcmpl-123","object":"chat.completion.chunk","created":1694268190,"model":"gpt-4o-mini", "system_fingerprint": "fp_44709d6fcb", "choices":[{"index":0,"delta":{"content":"Hello"},"logprobs":null,"finish_reason":null}]}
+    /// ....
+    /// {"id":"chatcmpl-123","object":"chat.completion.chunk","created":1694268190,"model":"gpt-4o-mini", "system_fingerprint": "fp_44709d6fcb", "choices":[{"index":0,"delta":{},"logprobs":null,"finish_reason":"stop"}]}
+    /// ```
     async fn completion_stream(
         &self,
         request: ModelRequest,
     ) -> Result<Pin<Box<dyn Stream<Item = Result<StreamEvent>> + Send>>> {
-        let body = build_request(&request, true);
-        debug!(
-            provider = "openai",
-            api_base = %self.base_url,
-            model = %request.model,
-            messages = request.messages.len(),
-            tools = request.tools.as_ref().map_or(0, Vec::len),
-            max_tokens = request.max_tokens,
-            "sending openai streaming request"
-        );
-
-        let event_source = EventSource::new(self.request_builder(&body))
-            .context("failed to create openai event source")?;
-        let stream = async_stream::try_stream! {
-            let mut response_id = String::new();
-            let mut text_buf = String::new();
-            let mut tool_calls: HashMap<u32, (String, String, String)> = HashMap::new();
-            let mut tool_blocks_started: std::collections::HashSet<u32> =
-                std::collections::HashSet::new();
-            let mut text_block_started = false;
-            let mut finish_reason: Option<StopReason> = None;
-            let mut stream_usage: Option<Usage> = None;
-
-            futures::pin_mut!(event_source);
-            while let Some(event) = event_source.next().await {
-                let event = event.map_err(|error| {
-                    anyhow::anyhow!("openai stream error for model {}: {error}", request.model)
-                })?;
-
-                match event {
-                    Event::Open => {}
-                    Event::Message(message) => {
-                        if message.data == "[DONE]" {
-                            break;
-                        }
-
-                        let chunk: Value = serde_json::from_str(&message.data)
-                            .map_err(|error| anyhow::anyhow!("failed to parse openai stream chunk: {error}"))?;
-
-                        if response_id.is_empty() {
-                            response_id = chunk
-                                .get("id")
-                                .and_then(Value::as_str)
-                                .unwrap_or_default()
-                                .to_string();
-                        }
-
-                        if let Some(usage) = chunk.get("usage") {
-                            if let Some(parsed) = parse_usage(usage) {
-                                stream_usage = Some(parsed.clone());
-                                yield StreamEvent::UsageDelta(parsed);
-                            }
-                        }
-
-                        let Some(choices) = chunk.get("choices").and_then(Value::as_array) else {
-                            continue;
-                        };
-                        for choice in choices {
-                            let delta = choice.get("delta").unwrap_or(&Value::Null);
-
-                            if let Some(content) = delta.get("content").and_then(Value::as_str) {
-                                if !content.is_empty() {
-                                    if !text_block_started {
-                                        text_block_started = true;
-                                        yield StreamEvent::ContentBlockStart {
-                                            index: 0,
-                                            content: ResponseContent::Text(String::new()),
-                                        };
-                                    }
-                                    text_buf.push_str(content);
-                                    yield StreamEvent::TextDelta {
-                                        index: 0,
-                                        text: content.to_string(),
-                                    };
-                                }
-                            }
-
-                            if let Some(tool_call_deltas) =
-                                delta.get("tool_calls").and_then(Value::as_array)
-                            {
-                                for tool_call_delta in tool_call_deltas {
-                                    let index = tool_call_delta
-                                        .get("index")
-                                        .and_then(Value::as_u64)
-                                        .unwrap_or(0) as u32;
-                                    let content_idx = (index + 1) as usize;
-                                    let entry = tool_calls
-                                        .entry(index)
-                                        .or_insert_with(|| (String::new(), String::new(), String::new()));
-
-                                    if let Some(id) = tool_call_delta.get("id").and_then(Value::as_str) {
-                                        entry.0 = id.to_string();
-                                    }
-                                    if let Some(function) =
-                                        tool_call_delta.get("function").and_then(Value::as_object)
-                                    {
-                                        if let Some(name) = function.get("name").and_then(Value::as_str) {
-                                            entry.1 = name.to_string();
-                                        }
-                                        if let Some(args) = function.get("arguments").and_then(Value::as_str) {
-                                            if !args.is_empty() {
-                                                entry.2.push_str(args);
-                                                if tool_blocks_started.insert(index) {
-                                                    yield StreamEvent::ContentBlockStart {
-                                                        index: content_idx,
-                                                        content: ResponseContent::ToolUse {
-                                                            id: entry.0.clone(),
-                                                            name: entry.1.clone(),
-                                                            input: Value::Object(serde_json::Map::new()),
-                                                        },
-                                                    };
-                                                }
-                                                yield StreamEvent::InputJsonDelta {
-                                                    index: content_idx,
-                                                    partial_json: args.to_string(),
-                                                };
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-
-                            if let Some(reason) = choice.get("finish_reason").and_then(Value::as_str) {
-                                finish_reason = Some(parse_finish_reason(reason));
-                            }
-                        }
-                    }
-                }
-            }
-
-            let mut content = Vec::new();
-            if !text_buf.is_empty() {
-                content.push(ResponseContent::Text(text_buf));
-            }
-            let mut sorted: Vec<_> = tool_calls.iter().collect();
-            sorted.sort_by_key(|(index, _)| *index);
-            for (_, (id, name, args)) in sorted {
-                let input = serde_json::from_str(args)
-                    .unwrap_or_else(|_| Value::Object(serde_json::Map::new()));
-                content.push(ResponseContent::ToolUse {
-                    id: id.clone(),
-                    name: name.clone(),
-                    input,
-                });
-            }
-
-            let response = ModelResponse {
-                id: response_id,
-                content,
-                stop_reason: finish_reason,
-                usage: stream_usage.unwrap_or_default(),
-                metadata: ResponseMetadata::default(),
-            };
-            yield StreamEvent::MessageDone { response };
-        };
-
-        Ok(Box::pin(stream))
+        stream::completion_stream(self, request).await
     }
 
     fn name(&self) -> &str {
@@ -1195,16 +1056,18 @@ impl ProviderAdapter for OpenAIProvider {
 
 #[cfg(test)]
 mod tests {
+    use clawcr_protocol::{
+        ModelRequest, RequestContent, RequestMessage, SamplingControls, ToolDefinition,
+    };
     use pretty_assertions::assert_eq;
     use serde_json::json;
 
     use super::super::OpenAIReasoningEffort;
     use super::super::shared::reasoning_effort;
     use super::{parse_finish_reason, parse_response, parse_usage};
-    use crate::{
-        ModelRequest, RequestContent, RequestMessage, ResponseContent, ResponseExtra,
-        SamplingControls, StopReason, ToolDefinition, openai::chat_completions::build_request,
-    };
+    use clawcr_protocol::{ResponseContent, ResponseExtra, StopReason};
+
+    use crate::openai::chat_completions::build_request;
 
     #[test]
     fn debug_request_body_includes_tools_and_reasoning_effort() {

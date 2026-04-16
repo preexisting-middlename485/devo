@@ -2,12 +2,11 @@ use std::path::PathBuf;
 
 use clawcr_safety::legacy_permissions::PermissionMode;
 
-use crate::{Message, Model, TokenBudget};
+use crate::{Message, Model, SystemPromptMode, TokenBudget, TurnToolsMode};
 
 /// Configuration for a session.
 #[derive(Debug, Clone)]
 pub struct SessionConfig {
-    pub system_prompt: String,
     pub token_budget: TokenBudget,
     pub permission_mode: PermissionMode,
 }
@@ -15,7 +14,6 @@ pub struct SessionConfig {
 impl Default for SessionConfig {
     fn default() -> Self {
         Self {
-            system_prompt: String::new(),
             token_budget: TokenBudget::default(),
             permission_mode: PermissionMode::AutoApprove,
         }
@@ -26,6 +24,8 @@ impl Default for SessionConfig {
 #[derive(Debug, Clone)]
 pub struct TurnConfig {
     pub model: Model,
+    pub system_prompt: SystemPromptMode,
+    pub tools: TurnToolsMode,
     pub thinking_selection: Option<String>,
 }
 
@@ -68,7 +68,7 @@ impl SessionState {
         self.messages.push(msg);
     }
 
-    pub fn to_request_messages(&self) -> Vec<clawcr_provider::RequestMessage> {
+    pub fn to_request_messages(&self) -> Vec<clawcr_protocol::RequestMessage> {
         self.messages
             .iter()
             .map(|m| m.to_request_message())
@@ -83,7 +83,6 @@ mod tests {
     #[test]
     fn session_config_default_values() {
         let config = SessionConfig::default();
-        assert!(config.system_prompt.is_empty());
         assert_eq!(config.permission_mode, PermissionMode::AutoApprove);
     }
 

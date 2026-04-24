@@ -1110,6 +1110,7 @@ impl HeaderHistoryCell {
                     ReasoningEffort::Medium => "medium",
                     ReasoningEffort::High => "high",
                     ReasoningEffort::XHigh => "xhigh",
+                    ReasoningEffort::Max => "max",
                 }),
             ThinkingCapability::Unsupported => None,
         }

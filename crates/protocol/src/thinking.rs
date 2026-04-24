@@ -119,6 +119,7 @@ pub struct ResolvedThinkingRequest {
 #[serde(rename_all = "lowercase")]
 #[strum(serialize_all = "lowercase")]
 pub enum ReasoningEffort {
+    // GPT thinking reason effor: [none, minimal, low, medium, high, xhigh]
     None,
     Minimal,
     Low,
@@ -126,6 +127,8 @@ pub enum ReasoningEffort {
     Medium,
     High,
     XHigh,
+    // DeepSeek V4 thinking reason effort: [high, max]
+    Max,
 }
 
 impl FromStr for ReasoningEffort {
@@ -146,6 +149,7 @@ impl ReasoningEffort {
             Self::Medium => "Medium",
             Self::High => "High",
             Self::XHigh => "XHigh",
+            Self::Max => "Max",
         }
     }
 
@@ -157,6 +161,7 @@ impl ReasoningEffort {
             Self::Medium => "Balanced speed and deliberation",
             Self::High => "More deliberate for harder tasks",
             Self::XHigh => "Most deliberate, highest effort",
+            Self::Max => "Most deliberate, highest effort",
         }
     }
 }
@@ -170,6 +175,7 @@ fn effort_rank(effort: ReasoningEffort) -> i32 {
         ReasoningEffort::Medium => 3,
         ReasoningEffort::High => 4,
         ReasoningEffort::XHigh => 5,
+        ReasoningEffort::Max => 5,
     }
 }
 

@@ -1259,6 +1259,7 @@ impl ChatWidget {
             Some(ReasoningEffort::Medium) => "medium",
             Some(ReasoningEffort::High) => "high",
             Some(ReasoningEffort::XHigh) => "xhigh",
+            Some(ReasoningEffort::Max) => "max",
         }
     }
 
@@ -1270,6 +1271,7 @@ impl ChatWidget {
             ReasoningEffort::Medium => "Medium",
             ReasoningEffort::High => "High",
             ReasoningEffort::XHigh => "Extra high",
+            ReasoningEffort::Max => "max",
         }
     }
 

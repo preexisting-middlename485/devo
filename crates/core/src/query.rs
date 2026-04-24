@@ -211,7 +211,7 @@ fn compact_session(session: &mut SessionState) -> usize {
     let last_tokens = session.last_input_tokens;
 
     if last_tokens == 0 {
-        // No token data yet — drop the oldest half
+        // No token data yet drop the oldest half
         let remove = msg_count / 2;
         session.messages.drain(..remove);
         return remove;
@@ -233,32 +233,6 @@ fn compact_session(session: &mut SessionState) -> usize {
         session.messages.drain(..remove_count);
     }
     remove_count
-}
-
-fn assistant_message_missing_reasoning(message: &RequestMessage) -> bool {
-    if message.role != "assistant" {
-        return false;
-    }
-
-    let has_reasoning = message
-        .content
-        .iter()
-        .any(|block| matches!(block, RequestContent::Reasoning { .. }));
-    let has_assistant_payload = message.content.iter().any(|block| {
-        matches!(
-            block,
-            RequestContent::Text { .. } | RequestContent::ToolUse { .. }
-        )
-    });
-
-    has_assistant_payload && !has_reasoning
-}
-
-fn request_has_incomplete_reasoning_context(request: &ModelRequest) -> bool {
-    request
-        .messages
-        .iter()
-        .any(assistant_message_missing_reasoning)
 }
 
 // ---------------------------------------------------------------------------
@@ -459,7 +433,7 @@ const INITIAL_RETRY_BACKOFF_MS: u64 = 250;
 
 /// TODO: The body of `query` is too lengthy, we should move out `stream lop` out, I am
 /// not sure whether we should do this.
-/// The recursive agent loop — the beating heart of the runtime.
+/// The recursive agent loop the beating heart of the runtime.
 ///
 /// The implementation refers to Claude Code's `query.ts`. It drives
 /// multi-turn conversations by:
@@ -489,7 +463,7 @@ pub async fn query(
         }
     };
 
-    // Memory prefetch — load workspace instructions and environment context once
+    // Memory prefetch load workspace instructions and environment context once
     // before the loop and inject them as leading user inputs.
     let prefetched_user_inputs = build_prefetched_user_inputs(&session.cwd);
 
@@ -508,7 +482,7 @@ pub async fn query(
                 .token_budget
                 .should_compact(session.last_input_tokens)
         {
-            info!("token budget threshold exceeded — compacting session");
+            info!("token budget threshold exceeded compacting session");
             compact_session(session);
         }
 
@@ -541,7 +515,7 @@ pub async fn query(
         let mut messages = session.to_request_messages();
         append_prefetched_user_inputs(&mut messages, &prefetched_user_inputs);
 
-        let mut request = ModelRequest {
+        let request = ModelRequest {
             model: request_model,
             system: if system.is_empty() {
                 None
@@ -565,22 +539,6 @@ pub async fn query(
             reasoning_effort: request_reasoning_effort,
             extra_body,
         };
-        if provider.name() == "openai"
-            && request
-                .thinking
-                .as_deref()
-                .is_some_and(|thinking| thinking != "disabled" && thinking != "none")
-            && request_has_incomplete_reasoning_context(&request)
-        {
-            warn!(
-                provider = provider.name(),
-                model = %turn_config.model.slug,
-                turn = session.turn_count,
-                "disabling thinking because prior assistant reasoning content is unavailable"
-            );
-            request.thinking = Some("disabled".to_string());
-            request.reasoning_effort = None;
-        }
         debug!(
             messages = request.messages.len(),
             tools = request.tools.as_ref().map_or(0, Vec::len),
@@ -819,7 +777,7 @@ pub async fn query(
         if tool_calls.is_empty() {
             // MaxOutputTokens auto-continue
             if stop_reason == Some(StopReason::MaxTokens) {
-                debug!("max_tokens reached — injecting continuation prompt");
+                debug!("max_tokens reached injecting continuation prompt");
                 session.push_message(Message::user("Please continue from where you left off."));
                 continue;
             }
@@ -1576,7 +1534,8 @@ mod tests {
 
         let captured = requests.lock().expect("lock requests");
         assert_eq!(captured.len(), 1);
-        assert_eq!(captured[0].thinking.as_deref(), Some("disabled"));
+        assert_eq!(captured[0].thinking.as_deref(), Some("enabled"));
+        // Toggle capability does not set reasoning_effort on the request.
         assert_eq!(captured[0].reasoning_effort, None);
     }
 }

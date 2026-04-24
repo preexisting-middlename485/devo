@@ -529,13 +529,23 @@ fn apply_turn_item(
             }
         }
         TurnItem::Plan(TextItem { text })
-        | TurnItem::Reasoning(TextItem { text })
         | TurnItem::WebSearch(TextItem { text })
         | TurnItem::ImageGeneration(TextItem { text })
         | TurnItem::ContextCompaction(TextItem { text })
         | TurnItem::HookPrompt(TextItem { text }) => {
             messages.push(Message::assistant_text(text));
         }
+        TurnItem::Reasoning(TextItem { text }) => match messages.last_mut() {
+            Some(message) if message.role == Role::Assistant => {
+                message.content.push(ContentBlock::Reasoning { text });
+            }
+            _ => {
+                messages.push(Message {
+                    role: Role::Assistant,
+                    content: vec![ContentBlock::Reasoning { text }],
+                });
+            }
+        },
         TurnItem::ToolProgress(_)
         | TurnItem::ApprovalRequest(_)
         | TurnItem::ApprovalDecision(_) => {}

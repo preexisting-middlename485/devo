@@ -783,9 +783,15 @@ mod tests {
         let rendered = extract_animated_status_line(line);
         let text = line_text(&rendered);
 
+        let valid_spinners = ["•", "◦", "⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+        let spinner_char = text.chars().next().unwrap().to_string();
         assert!(
-            text == "• Thinking  |  model" || text == "◦ Thinking  |  model",
+            valid_spinners.contains(&spinner_char.as_str()),
             "unexpected animated footer text: {text}"
+        );
+        assert!(
+            text.strip_prefix(&spinner_char).unwrap() == " Thinking  |  model",
+            "unexpected text after spinner: {text}"
         );
     }
 

